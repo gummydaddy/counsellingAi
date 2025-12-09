@@ -1,27 +1,92 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { Answer, AnalysisResult } from "../types";
+import { Answer, AnalysisResult, Question } from "../types";
 
-const parseResult = (text: string): AnalysisResult | null => {
+const getAI = () => {
+  if (!process.env.API_KEY) {
+    throw new Error("API Key is missing");
+  }
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+};
+
+const parseResult = <T>(text: string): T | null => {
   try {
-    return JSON.parse(text) as AnalysisResult;
+    return JSON.parse(text) as T;
   } catch (e) {
     console.error("Failed to parse Gemini response", e);
-    // Fallback cleanup if markdown blocks are included
     const cleaned = text.replace(/```json/g, '').replace(/```/g, '');
     try {
-        return JSON.parse(cleaned) as AnalysisResult;
+        return JSON.parse(cleaned) as T;
     } catch (e2) {
         return null;
     }
   }
 };
 
-export const analyzeStudentAnswers = async (answers: Answer[]): Promise<AnalysisResult> => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing");
-  }
+export const generateDeepDiveQuestions = async (previousAnswers: Answer[]): Promise<Question[]> => {
+  const ai = getAI();
 
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const formattedQA = previousAnswers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+
+  const prompt = `
+    You are a forensic psychologist and career profiler. 
+    Analyze the following student answers. Your goal is to generate 5 NEW, personalized, and deeper psychological questions.
+    
+    Objective:
+    - If the user shows signs of aggression or manipulation, ask questions that test their boundaries, remorse, or patience.
+    - If the user shows signs of high intelligence or empathy, ask questions that test their resilience, ability to make hard choices, or leadership under pressure.
+    - Do not ask repetitive questions. Dig deeper. Challenge their stated views.
+    - The questions should be hypothetical scenarios or "what if" situations.
+
+    Previous Q&A:
+    ${formattedQA}
+  `;
+
+  const schema: Schema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        text: { type: Type.STRING, description: "The question text." },
+        category: { type: Type.STRING, description: "The psychological category being tested." }
+      },
+      required: ["text", "category"]
+    }
+  };
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: schema,
+        temperature: 0.7, // Higher temperature for creativity in questions
+      },
+    });
+
+    const rawQuestions = parseResult<Array<{text: string, category: string}>>(response.text);
+    
+    if (!rawQuestions) throw new Error("Failed to generate questions");
+
+    return rawQuestions.map((q, idx) => ({
+      id: 100 + idx, // Dynamic IDs start at 100
+      text: q.text,
+      category: q.category as any,
+      isDynamic: true
+    }));
+
+  } catch (error) {
+    console.error("Gemini Deep Dive Error:", error);
+    // Fallback questions if API fails
+    return [
+      { id: 999, text: "Describe a time you had to deal with a major failure. Who did you blame?", category: 'resilience' },
+      { id: 998, text: "If you could control one person's actions for a day, who would it be and what would you make them do?", category: 'social_calibration' }
+    ];
+  }
+};
+
+export const analyzeStudentAnswers = async (answers: Answer[]): Promise<AnalysisResult> => {
+  const ai = getAI();
 
   // Define the strict response schema to ensure structured data
   const responseSchema: Schema = {
@@ -29,11 +94,11 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
     properties: {
       archetype: {
         type: Type.STRING,
-        description: "A 2-3 word title for the student's mindset (e.g., 'The Empathetic Healer', 'The Logical Architect', 'The Machiavellian Strategist', 'The Impulsive Risk-Taker').",
+        description: "A 2-3 word title for the student's mindset (e.g., 'The Empathetic Healer', 'The Machiavellian Tactician', 'The Visionary Builder').",
       },
       archetypeDescription: {
         type: Type.STRING,
-        description: "A short paragraph explaining why this archetype fits.",
+        description: "A detailed paragraph explaining why this archetype fits based on the answers.",
       },
       riskAssessment: {
         type: Type.OBJECT,
@@ -41,31 +106,32 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
           level: {
              type: Type.STRING,
              enum: ["Low", "Moderate", "High", "Critical"],
-             description: "The level of risk for anti-social, violent, predatory, or self-harm behavior."
+             description: "Risk level for anti-social, violent, or predatory behavior."
           },
           flags: {
             type: Type.ARRAY,
             items: { type: Type.STRING },
-            description: "List of specific concerning behaviors (e.g., 'Lack of empathy', 'Vindictive tendencies', 'Predatory logic', 'Anti-social ideation'). Empty if none.",
+            description: "List of specific behavioral red flags found in answers.",
           },
           isConcern: {
             type: Type.BOOLEAN,
-            description: "True if the student needs immediate counseling intervention."
+            description: "True if immediate counseling is recommended."
           }
         },
         required: ["level", "flags", "isConcern"]
       },
       traits: {
         type: Type.OBJECT,
-        description: "Score from 0 to 100 for each personality trait.",
+        description: "Score from 0 to 100 for the 6 core dimensions.",
         properties: {
-          empathy: { type: Type.NUMBER },
-          logic: { type: Type.NUMBER },
-          leadership: { type: Type.NUMBER },
-          aggression: { type: Type.NUMBER },
-          integrity: { type: Type.NUMBER },
+          empathy: { type: Type.NUMBER, description: "Ability to feel for others" },
+          logic: { type: Type.NUMBER, description: "Analytical and systemizing ability" },
+          integrity: { type: Type.NUMBER, description: "Adherence to ethical principles" },
+          ambition: { type: Type.NUMBER, description: "Drive for status and success" },
+          resilience: { type: Type.NUMBER, description: "Emotional stability and grit" },
+          social_calibration: { type: Type.NUMBER, description: "Charm, social intelligence, and adaptability" },
         },
-        required: ["empathy", "logic", "leadership", "aggression", "integrity"]
+        required: ["empathy", "logic", "integrity", "ambition", "resilience", "social_calibration"]
       },
       careerPathSuggestions: {
         type: Type.ARRAY,
@@ -76,11 +142,11 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
             description: { type: Type.STRING }
           }
         },
-        description: "3 positive career paths that fit their positive traits. If risk is high, suggest rehabilitative paths or structured environments."
+        description: "3 highly compatible career paths."
       },
       counselingAdvice: {
         type: Type.STRING,
-        description: "Direct advice to the student to improve their future path."
+        description: "Unbiased, constructive advice for personal growth."
       }
     },
     required: ["archetype", "archetypeDescription", "riskAssessment", "traits", "careerPathSuggestions", "counselingAdvice"]
@@ -89,27 +155,27 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
   const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
 
   const prompt = `
-    You are an advanced Criminal Psychologist and Career Counselor AI. 
-    Analyze the following student answers to determine their mindset, potential career aptitude, and behavioral risk level.
+    You are an unbiased, expert Psychological Profiler AI. 
+    Analyze the full conversation history to create a comprehensive profile.
 
-    CHAIN OF THOUGHT ANALYSIS INSTRUCTIONS:
-    1. **Analyze for Dark Triad Traits**: Look for Machiavellianism (manipulation), Narcissism (entitlement), and Psychopathy (lack of empathy/remorse).
-       - *Politician Mindset*: High Machiavellianism but socially calibrated. "Ends justify means" but for a group goal.
-       - *Criminal/Predatory Mindset*: High Aggression, Low Empathy, Entitlement to others' bodies or property, Vindictiveness.
+    CHAIN OF THOUGHT:
+    1. **Identify the Core Drive**: What motivates this student? (Power, Helping others, Knowledge, Stability?)
+    2. **Analyze for Potential Gems (Positive Outliers)**:
+       - High Logic + Creativity = Potential Inventor/Engineer.
+       - High Empathy + Resilience = Potential Doctor/Leader.
+       - High Ambition + Charm = Potential CEO/Politician.
+    3. **Analyze for Potential Threats (Risk Factors)**:
+       - **Dark Triad traits**: Machiavellianism (manipulation), Narcissism (grandiosity), Psychopathy (callousness).
+       - **The Dark Empath**: Look for students who understand emotions (high cognitive empathy) but use that understanding to hurt or manipulate (low affective empathy/integrity). This is a High Risk profile.
+       - If they admit to enjoying violence, manipulation, or lack of remorse, mark 'riskAssessment.level' as High or Critical.
+       - Differentiate between "Ruthless Business" (Moderate Risk) and "Predatory Behavior" (High Risk).
+    4. **Generate Unbiased Scores**: Fill the 6 traits (Empathy, Logic, Integrity, Ambition, Resilience, Social Calibration).
     
-    2. **Analyze for Constructive Traits**:
-       - *Engineer/Architect*: High Logic, Systemizing, curiosity about how things work.
-       - *Doctor/Caregiver*: High Empathy, desire to alleviate suffering, High Integrity.
-       - *Leader/CEO*: High Ambition, High Leadership, decisive in crisis.
-
-    3. **Determine Risk Level**:
-       - *Low*: Normal teenage responses.
-       - *Moderate*: Some aggression or selfishness, but within norms.
-       - *High/Critical*: Overt admissions of wanting to hurt others, lack of remorse for bullying, predatory sexual attitudes, or extreme dishonesty.
-
-    4. **Safety Protocols**:
-       - If the user sounds like a "potential rapist" or "violent criminal" (based on answers about consent, power, or violence), DO NOT label them as such directly in the 'archetype' field to avoid triggering safety filters. Instead, use clinical terms like "High-Risk Anti-Social Profile" or "Aggressive Dominance Profile" and set 'riskAssessment.level' to "Critical".
-       - Provide career advice that redirects their traits constructively (e.g., if aggressive, suggest sports or military; if manipulative, suggest law or debate) UNLESS the risk is Critical, then suggest "Behavioral Counseling" as the primary path.
+    BEHAVIORAL MAPPING:
+    - **Politician**: High Social Calibration, High Ambition, Variable Integrity.
+    - **Engineer**: High Logic, High Integrity, Moderate Social.
+    - **Doctor**: High Empathy, High Logic, High Resilience.
+    - **Criminal/Predator**: High Ambition, High Social Calibration (charm), LOW Integrity, LOW Empathy.
 
     Student Answers:
     ${formattedQA}
@@ -122,13 +188,11 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
       config: {
         responseMimeType: "application/json",
         responseSchema: responseSchema,
-        temperature: 0.5,
-        // Using a slightly higher thinking budget if available for complex psychological profiling,
-        // otherwise default behavior applies.
+        temperature: 0.4,
       },
     });
 
-    const result = parseResult(response.text);
+    const result = parseResult<AnalysisResult>(response.text);
     if (!result) throw new Error("Parsed result is null");
     return result;
 

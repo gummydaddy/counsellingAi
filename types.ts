@@ -1,7 +1,8 @@
 export interface Question {
   id: number;
   text: string;
-  category: 'ethics' | 'logic' | 'empathy' | 'resilience' | 'ambition' | 'leadership';
+  category: 'ethics' | 'logic' | 'empathy' | 'resilience' | 'ambition' | 'leadership' | 'social_calibration';
+  isDynamic?: boolean;
 }
 
 export interface Answer {
@@ -27,9 +28,10 @@ export interface AnalysisResult {
   traits: {
     empathy: number;
     logic: number;
-    leadership: number;
-    aggression: number;
     integrity: number;
+    ambition: number;
+    resilience: number;
+    social_calibration: number;
   };
   careerPathSuggestions: Array<{
     title: string;
@@ -44,4 +46,10 @@ export enum AppStep {
   ANALYZING,
   RESULTS,
   ERROR
+}
+
+export enum AssessmentPhase {
+  INITIAL,
+  GENERATING_DEEP_DIVE,
+  DEEP_DIVE
 }

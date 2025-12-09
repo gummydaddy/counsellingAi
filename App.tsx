@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { AppStep, Answer, AnalysisResult } from './types';
-import { QUESTIONS } from './constants';
+import React, { useState, useEffect } from 'react';
+import { AppStep, Answer, AnalysisResult, Question } from './types';
+import { QUESTION_POOL } from './constants';
 import { analyzeStudentAnswers } from './services/geminiService';
 import WelcomeScreen from './components/WelcomeScreen';
 import Assessment from './components/Assessment';
@@ -10,8 +10,47 @@ const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [phase1Questions, setPhase1Questions] = useState<Question[]>([]);
+
+  // Function to randomize questions ensuring category coverage (Stratified Sampling)
+  const initializeQuestions = () => {
+    // Group questions by category
+    const categories: Record<string, Question[]> = {};
+    QUESTION_POOL.forEach(q => {
+      if (!categories[q.category]) categories[q.category] = [];
+      categories[q.category].push(q);
+    });
+
+    const selectedQuestions: Question[] = [];
+    const usedIds = new Set<number>();
+
+    // Try to pick one from each key category to ensure the Hexagon Graph has data
+    const priorityCategories = ['ethics', 'logic', 'empathy', 'ambition', 'social_calibration'];
+    
+    priorityCategories.forEach(cat => {
+      if (categories[cat] && categories[cat].length > 0) {
+        // Pick random question from this category
+        const randomQ = categories[cat][Math.floor(Math.random() * categories[cat].length)];
+        selectedQuestions.push(randomQ);
+        usedIds.add(randomQ.id);
+      }
+    });
+
+    // If we have fewer than 5 (e.g. missing categories), fill with random remaining
+    while (selectedQuestions.length < 5) {
+      const available = QUESTION_POOL.filter(q => !usedIds.has(q.id));
+      if (available.length === 0) break;
+      const randomQ = available[Math.floor(Math.random() * available.length)];
+      selectedQuestions.push(randomQ);
+      usedIds.add(randomQ.id);
+    }
+
+    // Shuffle the final selection so categories aren't always in same order
+    setPhase1Questions(selectedQuestions.sort(() => 0.5 - Math.random()));
+  };
 
   const handleStart = () => {
+    initializeQuestions();
     setStep(AppStep.ASSESSMENT);
   };
 
@@ -59,8 +98,8 @@ const App: React.FC = () => {
           <WelcomeScreen onStart={handleStart} />
         )}
 
-        {step === AppStep.ASSESSMENT && (
-          <Assessment questions={QUESTIONS} onComplete={handleAssessmentComplete} />
+        {step === AppStep.ASSESSMENT && phase1Questions.length > 0 && (
+          <Assessment initialQuestions={phase1Questions} onComplete={handleAssessmentComplete} />
         )}
 
         {step === AppStep.ANALYZING && (
@@ -69,8 +108,8 @@ const App: React.FC = () => {
                <div className="absolute top-0 left-0 w-full h-full border-4 border-brand-100 rounded-full"></div>
                <div className="absolute top-0 left-0 w-full h-full border-4 border-brand-600 rounded-full border-t-transparent animate-spin"></div>
             </div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">Analyzing Responses</h2>
-            <p className="text-slate-500">Consulting psychological models...</p>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Finalizing Profile</h2>
+            <p className="text-slate-500">Mapping 6-Axis Behavioral Graph...</p>
           </div>
         )}
 
