@@ -146,7 +146,7 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
       },
       counselingAdvice: {
         type: Type.STRING,
-        description: "Unbiased, constructive advice for personal growth."
+        description: "Detailed, actionable advice. Address the lowest trait score with a specific improvement exercise. Highlight the highest trait as a superpower to use responsibly. NO generic quotes."
       }
     },
     required: ["archetype", "archetypeDescription", "riskAssessment", "traits", "careerPathSuggestions", "counselingAdvice"]
@@ -170,6 +170,10 @@ export const analyzeStudentAnswers = async (answers: Answer[]): Promise<Analysis
        - If they admit to enjoying violence, manipulation, or lack of remorse, mark 'riskAssessment.level' as High or Critical.
        - Differentiate between "Ruthless Business" (Moderate Risk) and "Predatory Behavior" (High Risk).
     4. **Generate Unbiased Scores**: Fill the 6 traits (Empathy, Logic, Integrity, Ambition, Resilience, Social Calibration).
+    5. **Formulate Actionable Counseling**:
+       - **Gap Analysis**: Look at the lowest score (e.g., Low Resilience). Provide a concrete exercise to improve it (e.g., "Practice the 2-minute rule for difficult tasks" or "Cognitive reframing for failure").
+       - **Strength Leveraging**: Look at the highest score. Suggest how to apply it (e.g., "Use your High Logic to mentor others in problem-solving").
+       - **Specifics**: Do not give generic advice like "be nicer." Give specific behavioral adjustments.
     
     BEHAVIORAL MAPPING:
     - **Politician**: High Social Calibration, High Ambition, Variable Integrity.
