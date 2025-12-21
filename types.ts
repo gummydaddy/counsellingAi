@@ -1,7 +1,10 @@
+
+export type SessionType = 'school' | 'medical' | 'psychological' | 'career' | 'relationship';
+
 export interface Question {
   id: number;
   text: string;
-  category: 'ethics' | 'logic' | 'empathy' | 'resilience' | 'ambition' | 'leadership' | 'social_calibration';
+  category: string;
   isDynamic?: boolean;
 }
 
@@ -9,6 +12,24 @@ export interface Answer {
   questionId: number;
   questionText: string;
   userResponse: string;
+}
+
+export interface MCQOption {
+  value: string;
+  label: string;
+}
+
+export interface MCQQuestion {
+  id: number;
+  text: string;
+  options: MCQOption[];
+  category: string;
+}
+
+export interface MCQAnswer {
+  questionId: number;
+  questionText: string;
+  selectedOption: string;
 }
 
 export interface TraitScore {
@@ -24,6 +45,7 @@ export interface AnalysisResult {
     level: 'Low' | 'Moderate' | 'High' | 'Critical';
     flags: string[];
     isConcern: boolean;
+    detailedAnalysis: string;
   };
   traits: {
     empathy: number;
@@ -36,12 +58,16 @@ export interface AnalysisResult {
   careerPathSuggestions: Array<{
     title: string;
     description: string;
+    strategicFit: string;
   }>;
   counselingAdvice: string;
 }
 
 export enum AppStep {
   WELCOME,
+  SESSION_SELECTION,
+  MCQ_PHASE,
+  GENERATING_PHASE1,
   ASSESSMENT,
   ANALYZING,
   RESULTS,

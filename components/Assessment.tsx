@@ -1,13 +1,15 @@
+
 import React, { useState, useEffect } from 'react';
-import { Question, Answer, AssessmentPhase } from '../types';
+import { Question, Answer, AssessmentPhase, SessionType } from '../types';
 import { generateDeepDiveQuestions } from '../services/geminiService';
 
 interface Props {
   initialQuestions: Question[];
+  sessionType: SessionType;
   onComplete: (answers: Answer[]) => void;
 }
 
-const Assessment: React.FC<Props> = ({ initialQuestions, onComplete }) => {
+const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete }) => {
   const [questions, setQuestions] = useState<Question[]>(initialQuestions);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [answers, setAnswers] = useState<Answer[]>([]);
@@ -45,7 +47,7 @@ const Assessment: React.FC<Props> = ({ initialQuestions, onComplete }) => {
       if (phase === AssessmentPhase.INITIAL) {
         setPhase(AssessmentPhase.GENERATING_DEEP_DIVE);
         try {
-          const newQuestions = await generateDeepDiveQuestions(updatedAnswers);
+          const newQuestions = await generateDeepDiveQuestions(updatedAnswers, sessionType);
           setQuestions([...questions, ...newQuestions]);
           setPhase(AssessmentPhase.DEEP_DIVE);
           setCurrentIndex(prev => prev + 1);

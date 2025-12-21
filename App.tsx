@@ -1,63 +1,48 @@
-import React, { useState, useEffect } from 'react';
-import { AppStep, Answer, AnalysisResult, Question } from './types';
-import { QUESTION_POOL } from './constants';
-import { analyzeStudentAnswers } from './services/geminiService';
+
+import React, { useState } from 'react';
+import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType } from './types';
+import { SESSION_MCQ_POOLS } from './constants';
+import { analyzeStudentAnswers, generatePhase1Questions } from './services/geminiService';
 import WelcomeScreen from './components/WelcomeScreen';
 import Assessment from './components/Assessment';
 import ResultsView from './components/ResultsView';
+import MCQPhase from './components/MCQPhase';
+import SessionSelectionScreen from './components/SessionSelectionScreen';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);
+  const [sessionType, setSessionType] = useState<SessionType>('school'); // Default
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [phase1Questions, setPhase1Questions] = useState<Question[]>([]);
-
-  // Function to randomize questions ensuring category coverage (Stratified Sampling)
-  const initializeQuestions = () => {
-    // Group questions by category
-    const categories: Record<string, Question[]> = {};
-    QUESTION_POOL.forEach(q => {
-      if (!categories[q.category]) categories[q.category] = [];
-      categories[q.category].push(q);
-    });
-
-    const selectedQuestions: Question[] = [];
-    const usedIds = new Set<number>();
-
-    // Try to pick one from each key category to ensure the Hexagon Graph has data
-    const priorityCategories = ['ethics', 'logic', 'empathy', 'ambition', 'social_calibration'];
-    
-    priorityCategories.forEach(cat => {
-      if (categories[cat] && categories[cat].length > 0) {
-        // Pick random question from this category
-        const randomQ = categories[cat][Math.floor(Math.random() * categories[cat].length)];
-        selectedQuestions.push(randomQ);
-        usedIds.add(randomQ.id);
-      }
-    });
-
-    // If we have fewer than 5 (e.g. missing categories), fill with random remaining
-    while (selectedQuestions.length < 5) {
-      const available = QUESTION_POOL.filter(q => !usedIds.has(q.id));
-      if (available.length === 0) break;
-      const randomQ = available[Math.floor(Math.random() * available.length)];
-      selectedQuestions.push(randomQ);
-      usedIds.add(randomQ.id);
-    }
-
-    // Shuffle the final selection so categories aren't always in same order
-    setPhase1Questions(selectedQuestions.sort(() => 0.5 - Math.random()));
+  
+  const handleStart = () => {
+    setStep(AppStep.SESSION_SELECTION);
   };
 
-  const handleStart = () => {
-    initializeQuestions();
-    setStep(AppStep.ASSESSMENT);
+  const handleSessionSelect = (type: SessionType) => {
+    setSessionType(type);
+    setStep(AppStep.MCQ_PHASE);
+  };
+
+  const handleMCQComplete = async (answers: MCQAnswer[]) => {
+    setStep(AppStep.GENERATING_PHASE1);
+    try {
+      // Use AI to generate specific text questions based on MCQ answers and session type
+      const generatedQuestions = await generatePhase1Questions(answers, sessionType);
+      setPhase1Questions(generatedQuestions);
+      setStep(AppStep.ASSESSMENT);
+    } catch (e) {
+      console.error(e);
+      setErrorMsg("Failed to generate personalized questions. Please try again.");
+      setStep(AppStep.ERROR);
+    }
   };
 
   const handleAssessmentComplete = async (answers: Answer[]) => {
     setStep(AppStep.ANALYZING);
     try {
-      const analysis = await analyzeStudentAnswers(answers);
+      const analysis = await analyzeStudentAnswers(answers, sessionType);
       setResult(analysis);
       setStep(AppStep.RESULTS);
     } catch (e) {
@@ -70,13 +55,14 @@ const App: React.FC = () => {
   const handleReset = () => {
     setResult(null);
     setErrorMsg(null);
+    setPhase1Questions([]);
     setStep(AppStep.WELCOME);
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans selection:bg-brand-100">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-50">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-50 print:hidden">
         <div className="max-w-6xl mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center space-x-2 cursor-pointer" onClick={handleReset}>
             <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold text-lg">
@@ -85,8 +71,8 @@ const App: React.FC = () => {
             <span className="text-xl font-bold tracking-tight text-slate-800">MindPath</span>
           </div>
           {step !== AppStep.WELCOME && (
-             <div className="text-xs font-medium text-slate-400 uppercase tracking-widest">
-               Student Assessment
+             <div className="text-xs font-medium text-slate-400 uppercase tracking-widest flex items-center">
+               {sessionType.charAt(0).toUpperCase() + sessionType.slice(1)} Session
              </div>
           )}
         </div>
@@ -98,8 +84,32 @@ const App: React.FC = () => {
           <WelcomeScreen onStart={handleStart} />
         )}
 
+        {step === AppStep.SESSION_SELECTION && (
+          <SessionSelectionScreen onSelect={handleSessionSelect} />
+        )}
+
+        {step === AppStep.MCQ_PHASE && (
+          <MCQPhase questions={SESSION_MCQ_POOLS[sessionType]} onComplete={handleMCQComplete} />
+        )}
+
+        {step === AppStep.GENERATING_PHASE1 && (
+          <div className="flex flex-col items-center justify-center py-20 animate-fade-in text-center px-4">
+             <div className="w-16 h-16 border-4 border-indigo-200 border-t-indigo-600 rounded-full animate-spin mb-6"></div>
+             <h2 className="text-2xl font-bold text-slate-800 mb-2">Analyzing Preliminary Profile</h2>
+             <p className="text-slate-500 max-w-md">
+               The {sessionType} specialist is reviewing your choices to create custom scenarios...
+             </p>
+          </div>
+        )}
+
         {step === AppStep.ASSESSMENT && phase1Questions.length > 0 && (
-          <Assessment initialQuestions={phase1Questions} onComplete={handleAssessmentComplete} />
+          // key={phase1Questions[0].id} forces remount if questions change completely
+          <Assessment 
+            key={phase1Questions[0].id} 
+            initialQuestions={phase1Questions} 
+            sessionType={sessionType}
+            onComplete={handleAssessmentComplete} 
+          />
         )}
 
         {step === AppStep.ANALYZING && (
@@ -108,8 +118,8 @@ const App: React.FC = () => {
                <div className="absolute top-0 left-0 w-full h-full border-4 border-brand-100 rounded-full"></div>
                <div className="absolute top-0 left-0 w-full h-full border-4 border-brand-600 rounded-full border-t-transparent animate-spin"></div>
             </div>
-            <h2 className="text-2xl font-bold text-slate-800 mb-2">Finalizing Profile</h2>
-            <p className="text-slate-500">Mapping 6-Axis Behavioral Graph...</p>
+            <h2 className="text-2xl font-bold text-slate-800 mb-2">Finalizing Report</h2>
+            <p className="text-slate-500">Generating 6-Axis Behavioral Graph & Strategic Advice...</p>
           </div>
         )}
 
@@ -133,7 +143,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      <footer className="py-6 text-center text-slate-400 text-sm">
+      <footer className="py-6 text-center text-slate-400 text-sm print:hidden">
         <p>&copy; {new Date().getFullYear()} MindPath AI. Educational Purpose Only.</p>
       </footer>
     </div>

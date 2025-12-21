@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 interface Props {
@@ -18,21 +19,19 @@ const WelcomeScreen: React.FC<Props> = ({ onStart }) => {
       </h1>
       
       <p className="text-lg md:text-xl text-slate-600 mb-8 max-w-2xl leading-relaxed">
-        Are you thinking like an Engineer, a Leader, a Healer, or something else? 
-        Take our AI-powered psychological assessment to reveal your hidden potential 
-        and get personalized career guidance for your future.
+        Whether you need guidance for <strong>School</strong>, <strong>Health</strong>, <strong>Career</strong>, or <strong>Relationships</strong>, 
+        our advanced AI Counselors are here to analyze your situation and provide deep, strategic insights.
       </p>
 
       <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8 text-sm text-yellow-800 max-w-xl">
-        <strong>Privacy Notice:</strong> Your answers are analyzed anonymously by AI to provide educational insights. 
-        Please answer truthfully for the most accurate results.
+        <strong>Privacy Notice:</strong> Your answers are analyzed anonymously by AI to provide educational and strategic insights. 
       </div>
 
       <button 
         onClick={onStart}
         className="group relative inline-flex items-center justify-center px-8 py-4 text-lg font-semibold text-white transition-all duration-200 bg-brand-600 rounded-full hover:bg-brand-700 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-brand-600"
       >
-        Start Assessment
+        Select Your Session
         <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
         </svg>
