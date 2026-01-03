@@ -32,13 +32,8 @@ export interface MCQAnswer {
   selectedOption: string;
 }
 
-export interface TraitScore {
-  trait: string;
-  score: number; // 0-100
-  fullMark: number;
-}
-
 export interface AnalysisResult {
+  sessionType?: SessionType; // Added for UI context
   archetype: string;
   archetypeDescription: string;
   riskAssessment: {
@@ -78,6 +73,8 @@ export enum AppStep {
 
 export enum AssessmentPhase {
   INITIAL,
+  GENERATING_RAPPORT,
+  RAPPORT,
   GENERATING_DEEP_DIVE,
   DEEP_DIVE
 }

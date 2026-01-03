@@ -1,6 +1,7 @@
 
-import { GoogleGenAI, Type, Schema } from "@google/genai";
+import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types";
+import { KnowledgeBaseService } from "./knowledgeBaseService";
 
 const getAI = () => {
   if (!process.env.API_KEY) {
@@ -9,11 +10,11 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-const parseResult = <T>(text: string): T | null => {
+const parseResult = <T>(text: string | undefined): T | null => {
+  if (!text) return null;
   try {
     return JSON.parse(text) as T;
   } catch (e) {
-    console.error("Failed to parse Gemini response", e);
     const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
     try {
         return JSON.parse(cleaned) as T;
@@ -31,8 +32,7 @@ const callWithRetry = async <T>(
   try {
     return await fn();
   } catch (error: any) {
-    const shouldRetry = retries > 0;
-    if (shouldRetry) {
+    if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, delay));
       return callWithRetry(fn, retries - 1, delay * 2);
     } else {
@@ -58,207 +58,215 @@ export const generatePhase1Questions = async (
 ): Promise<Question[]> => {
   const ai = getAI();
   const role = getRoleDescription(sessionType);
+  const learnedContext = KnowledgeBaseService.getLearningContext(sessionType);
   
-  let contextString = "";
-  if (counselorNotes) {
-    contextString = `EXISTING PROFESSIONAL NOTES:\n${counselorNotes}\n\nINSTRUCTION: Analyze these expert notes and generate 5 follow-up questions to validate or expand on these findings.`;
-  } else if (mcqAnswers) {
-    const formattedMCQ = mcqAnswers.map(a => `Context: ${a.questionText} -> Choice: ${a.selectedOption}`).join("\n");
-    contextString = `PRELIMINARY USER CHOICES:\n${formattedMCQ}\n\nINSTRUCTION: Based on these high-level choices, generate 5 open-ended hypothetical questions.`;
-  }
+  let contextString = counselorNotes 
+    ? `EXPERT NOTES:\n${counselorNotes}` 
+    : `MCQ DATA:\n${mcqAnswers?.map(a => a.selectedOption).join(", ")}`;
 
   const prompt = `
-    You are ${role}.
-    ${contextString}
-
-    DOMAIN: ${sessionType} counseling.
-    
-    GUIDELINES:
-    - Questions must be professional and probing.
-    - If professional notes are provided, be highly specific to the case details mentioned.
-    - If notes mention a specific risk, ask a question that tests that risk safely.
-    - If no notes are provided, use the user's preliminary choices to gauge their baseline.
+    ${learnedContext}
+    You are ${role}. Generate 5 professional Foundation Questions for a ${sessionType} session. 
+    Base them on: ${contextString}
   `;
 
-  const schema: Schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        text: { type: Type.STRING },
-        category: { type: Type.STRING }
-      },
-      required: ["text", "category"]
-    }
-  };
+  try {
+    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json", 
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: { text: { type: Type.STRING }, category: { type: Type.STRING } },
+            required: ["text", "category"]
+          }
+        }, 
+        temperature: 0.7 
+      }
+    }));
+    const raw = parseResult<Array<{text: string, category: string}>>(response.text);
+    return raw?.map((q, idx) => ({ id: 50 + idx, text: q.text, category: q.category, isDynamic: true })) || [];
+  } catch (e) {
+    return [{ id: 1, text: "Can you share what specifically led you to seek a session today?", category: "intro" }];
+  }
+};
+
+export const generateRapportQuestion = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question> => {
+  const ai = getAI();
+  const role = getRoleDescription(sessionType);
+  const formattedQA = previousAnswers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+
+  const prompt = `
+    You are ${role}. 
+    This is the PATIENT ANSWERING PHASE. Generate ONE strategic rapport builder question.
+    Use past clinical experience if available to address common defenses.
+    Previous Context: ${formattedQA}
+  `;
 
   try {
-    const response = await callWithRetry(async () => {
-      return await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          temperature: 0.7,
-        },
-      });
-    });
-
-    const rawQuestions = parseResult<Array<{text: string, category: string}>>(response.text);
-    if (!rawQuestions) throw new Error("Failed to parse Phase 1 questions");
-
-    return rawQuestions.map((q, idx) => ({
-      id: 50 + idx, 
-      text: q.text,
-      category: q.category,
-      isDynamic: true
+    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json", 
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: { text: { type: Type.STRING }, category: { type: Type.STRING } },
+          required: ["text", "category"]
+        }, 
+        temperature: 0.9 
+      }
     }));
-
-  } catch (error) {
-    console.error("GenAI Phase 1 Error:", error);
-    return [
-       { id: 1, text: "Can you describe what brought you to this session today in more detail?", category: 'general' },
-       { id: 2, text: "What is your biggest worry regarding this topic right now?", category: 'anxiety' },
-       { id: 3, text: "How do you usually handle stress related to this?", category: 'coping' },
-       { id: 4, text: "What outcome are you hoping for?", category: 'goals' },
-       { id: 5, text: "Is there anything specific you think I should know?", category: 'open' }
-    ];
+    const raw = parseResult<{text: string, category: string}>(response.text);
+    return { id: 75, text: raw?.text || "What else would you like to share about your experience?", category: "rapport", isDynamic: true };
+  } catch (e) {
+    return { id: 75, text: "In your own words, how would you describe your ideal outcome for this situation?", category: "rapport", isDynamic: true };
   }
 };
 
 export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question[]> => {
   const ai = getAI();
   const role = getRoleDescription(sessionType);
+  const learnedContext = KnowledgeBaseService.getLearningContext(sessionType);
   const formattedQA = previousAnswers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
 
   const prompt = `
-    You are ${role}.
-    Analyze the following Phase 1 answers. Generate 5 Phase 2 (Deep Dive) questions.
-    DRILL DOWN into specific contradictions or emotional spikes found in these responses.
-    
-    Previous Q&A:
-    ${formattedQA}
+    ${learnedContext}
+    You are ${role}. Generate 5 Deep Dive Questions investigating behavioral markers for ${sessionType}.
+    Context: ${formattedQA}
   `;
 
-  const schema: Schema = {
-    type: Type.ARRAY,
-    items: {
-      type: Type.OBJECT,
-      properties: {
-        text: { type: Type.STRING },
-        category: { type: Type.STRING }
-      },
-      required: ["text", "category"]
-    }
-  };
-
   try {
-    const response = await callWithRetry(async () => {
-      return await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: schema,
-          temperature: 0.7,
-        },
-      });
-    });
-
-    const rawQuestions = parseResult<Array<{text: string, category: string}>>(response.text);
-    if (!rawQuestions) throw new Error("Failed to parse Deep Dive questions");
-
-    return rawQuestions.map((q, idx) => ({
-      id: 100 + idx,
-      text: q.text,
-      category: q.category,
-      isDynamic: true
+    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json", 
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: { text: { type: Type.STRING }, category: { type: Type.STRING } },
+            required: ["text", "category"]
+          }
+        }, 
+        temperature: 0.7 
+      }
     }));
-
-  } catch (error) {
-    return [
-      { id: 999, text: "Tell me more about how this makes you feel.", category: 'exploration' },
-      { id: 998, text: "What steps have you already taken to solve this?", category: 'action' }
-    ];
+    const raw = parseResult<Array<{text: string, category: string}>>(response.text);
+    return raw?.map((q, idx) => ({ id: 100 + idx, text: q.text, category: q.category, isDynamic: true })) || [];
+  } catch (e) {
+    return [{ id: 99, text: "Could you expand on your last point with a specific example?", category: "deep_dive" }];
   }
 };
 
 export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType): Promise<AnalysisResult> => {
   const ai = getAI();
   const role = getRoleDescription(sessionType);
-
-  const responseSchema: Schema = {
-    type: Type.OBJECT,
-    properties: {
-      archetype: { type: Type.STRING },
-      archetypeDescription: { type: Type.STRING },
-      riskAssessment: {
-        type: Type.OBJECT,
-        properties: {
-          level: { type: Type.STRING, enum: ["Low", "Moderate", "High", "Critical"] },
-          flags: { type: Type.ARRAY, items: { type: Type.STRING } },
-          isConcern: { type: Type.BOOLEAN },
-          detailedAnalysis: { type: Type.STRING }
-        },
-        required: ["level", "flags", "isConcern", "detailedAnalysis"]
-      },
-      traits: {
-        type: Type.OBJECT,
-        properties: {
-          empathy: { type: Type.NUMBER },
-          logic: { type: Type.NUMBER },
-          integrity: { type: Type.NUMBER },
-          ambition: { type: Type.NUMBER },
-          resilience: { type: Type.NUMBER },
-          social_calibration: { type: Type.NUMBER },
-        },
-        required: ["empathy", "logic", "integrity", "ambition", "resilience", "social_calibration"]
-      },
-      careerPathSuggestions: {
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            title: { type: Type.STRING },
-            description: { type: Type.STRING },
-            strategicFit: { type: Type.STRING }
-          },
-          required: ["title", "description", "strategicFit"]
-        }
-      },
-      counselingAdvice: { type: Type.STRING }
-    },
-    required: ["archetype", "archetypeDescription", "riskAssessment", "traits", "careerPathSuggestions", "counselingAdvice"]
-  };
-
+  const learnedContext = KnowledgeBaseService.getLearningContext(sessionType);
   const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
 
   const prompt = `
-    You are ${role}.
-    Analyze the full session history to create a profile.
-    
-    User Answers:
+    ${learnedContext}
+    You are ${role}. Perform a multidimensional clinical analysis for a ${sessionType} session.
+    Context:
     ${formattedQA}
   `;
 
   try {
-    const response = await callWithRetry(async () => {
-      return await ai.models.generateContent({
-        model: "gemini-2.5-flash",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: responseSchema,
-          temperature: 0.4,
-        },
-      });
-    });
+    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-pro-preview",
+      contents: prompt,
+      config: { 
+        responseMimeType: "application/json", 
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            archetype: { type: Type.STRING },
+            archetypeDescription: { type: Type.STRING },
+            riskAssessment: {
+              type: Type.OBJECT,
+              properties: {
+                level: { type: Type.STRING },
+                flags: { type: Type.ARRAY, items: { type: Type.STRING } },
+                isConcern: { type: Type.BOOLEAN },
+                detailedAnalysis: { type: Type.STRING }
+              },
+              required: ["level", "flags", "isConcern", "detailedAnalysis"]
+            },
+            traits: {
+              type: Type.OBJECT,
+              properties: {
+                empathy: { type: Type.NUMBER },
+                logic: { type: Type.NUMBER },
+                integrity: { type: Type.NUMBER },
+                ambition: { type: Type.NUMBER },
+                resilience: { type: Type.NUMBER },
+                social_calibration: { type: Type.NUMBER },
+              },
+              required: ["empathy", "logic", "integrity", "ambition", "resilience", "social_calibration"]
+            },
+            careerPathSuggestions: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: { title: { type: Type.STRING }, description: { type: Type.STRING }, strategicFit: { type: Type.STRING } },
+                required: ["title", "description", "strategicFit"]
+              }
+            },
+            counselingAdvice: { type: Type.STRING }
+          },
+          required: ["archetype", "archetypeDescription", "riskAssessment", "traits", "careerPathSuggestions", "counselingAdvice"]
+        }, 
+        temperature: 0.4 
+      }
+    }));
+    const res = parseResult<AnalysisResult>(response.text);
+    if (res) res.sessionType = sessionType;
+    return res || {} as AnalysisResult;
+  } catch (e) {
+    throw new Error("Analysis failed.");
+  }
+};
 
-    const result = parseResult<AnalysisResult>(response.text);
-    if (!result) throw new Error("Parsed result is invalid");
-    return result;
-  } catch (error) {
-    throw new Error("Unable to analyze profile at this time.");
+/**
+ * LEARNING LOOP: Generates a meta-insight from the session to grow the AI's intelligence.
+ */
+export const generateMetaInsight = async (result: AnalysisResult, answers: Answer[]): Promise<{pattern: string, recommendation: string}> => {
+  const ai = getAI();
+  const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+  
+  const prompt = `
+    Analyze this counseling session. 
+    Session Type: ${result.sessionType}
+    Summary: ${result.archetype} - ${result.archetypeDescription}
+    Answers: ${formattedQA}
+    
+    TASK: Generate a single "Global Clinical Rule" for future AI training. 
+    Identify the core behavioral pattern seen here and provide a recommendation for how an AI should handle similar profiles in the future.
+  `;
+
+  try {
+    const response: GenerateContentResponse = await callWithRetry(() => ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            pattern: { type: Type.STRING, description: "A high-level summary of the behavioral markers observed." },
+            recommendation: { type: Type.STRING, description: "A clinical rule for future AI analysis." }
+          },
+          required: ["pattern", "recommendation"]
+        }
+      }
+    }));
+    return parseResult<{pattern: string, recommendation: string}>(response.text) || { pattern: "Undetermined", recommendation: "Standard protocol" };
+  } catch (e) {
+    return { pattern: "Undetermined", recommendation: "Standard protocol" };
   }
 };

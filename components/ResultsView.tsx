@@ -1,211 +1,172 @@
-import React from 'react';
-import { AnalysisResult } from '../types';
+
+import React, { useState } from 'react';
+import { AnalysisResult, SessionType, Answer } from '../types';
+import { generateMetaInsight } from '../services/geminiService';
+import { KnowledgeBaseService } from '../services/knowledgeBaseService';
 import {
-  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip, Legend
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
 
 interface Props {
   result: AnalysisResult;
+  answers: Answer[]; // Added to allow insight generation
   onReset: () => void;
 }
 
-const ResultsView: React.FC<Props> = ({ result, onReset }) => {
+const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
+  const [isLearning, setIsLearning] = useState(false);
+  const [hasLearned, setHasLearned] = useState(false);
+  
+  const sessionType = result.sessionType || 'school';
   const isHighRisk = result.riskAssessment.isConcern;
-  const isCritical = result.riskAssessment.level === 'Critical';
   const riskLevel = result.riskAssessment.level;
 
-  const radarData = [
-    { subject: 'Empathy', Student: result.traits.empathy, Baseline: 60, fullMark: 100 },
-    { subject: 'Logic', Student: result.traits.logic, Baseline: 50, fullMark: 100 },
-    { subject: 'Integrity', Student: result.traits.integrity, Baseline: 65, fullMark: 100 },
-    { subject: 'Resilience', Student: result.traits.resilience, Baseline: 55, fullMark: 100 },
-    { subject: 'Ambition', Student: result.traits.ambition, Baseline: 50, fullMark: 100 },
-    { subject: 'Social', Student: result.traits.social_calibration, Baseline: 60, fullMark: 100 },
-  ];
-
-  const getRiskColor = (level: string) => {
-    switch (level) {
-      case 'Critical': return 'bg-red-600 border-red-800 text-white';
-      case 'High': return 'bg-orange-500 border-orange-700 text-white';
-      case 'Moderate': return 'bg-yellow-400 border-yellow-600 text-slate-900';
-      default: return 'bg-emerald-500 border-emerald-700 text-white';
+  const handleValidateAndGrow = async () => {
+    setIsLearning(true);
+    try {
+      const insight = await generateMetaInsight(result, answers);
+      KnowledgeBaseService.addInsight({
+        sessionType: sessionType,
+        pattern: insight.pattern,
+        recommendation: insight.recommendation,
+        timestamp: Date.now()
+      });
+      setHasLearned(true);
+    } catch (e) {
+      console.error("Learning failed", e);
+    } finally {
+      setIsLearning(false);
     }
   };
 
-  const handlePrint = () => {
-    window.print();
+  const getTraitLabels = (type: SessionType) => {
+    switch (type) {
+      case 'medical': return ['Compliance', 'Logic', 'Body Trust', 'Resilience', 'Energy', 'Anxiety Control'];
+      case 'psychological': return ['Self-Awareness', 'Logic', 'Emotional Reg', 'Resilience', 'Coping', 'Social Trust'];
+      case 'career': return ['Empathy', 'Logic', 'Integrity', 'Resilience', 'Ambition', 'Leadership'];
+      case 'relationship': return ['Empathy', 'Logic', 'Conflict Res', 'Resilience', 'Vulnerability', 'Boundaries'];
+      case 'school': default: return ['Curiosity', 'Logic', 'Discipline', 'Resilience', 'Ambition', 'Peer Relations'];
+    }
   };
 
+  const labels = getTraitLabels(sessionType);
+  const radarData = [
+    { subject: labels[0], Student: result.traits.empathy, fullMark: 100 },
+    { subject: labels[1], Student: result.traits.logic, fullMark: 100 },
+    { subject: labels[2], Student: result.traits.integrity, fullMark: 100 },
+    { subject: labels[3], Student: result.traits.resilience, fullMark: 100 },
+    { subject: labels[4], Student: result.traits.ambition, fullMark: 100 },
+    { subject: labels[5], Student: result.traits.social_calibration, fullMark: 100 },
+  ];
+
+  const getSessionTheme = (type: SessionType) => {
+    switch (type) {
+      case 'medical': return { title: 'Patient Clinical Synopsis', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', icon: '🩺', suggestionHeader: 'Recommended Interventions' };
+      case 'psychological': return { title: 'Mental Health Audit', color: 'text-purple-700', bg: 'bg-purple-50', border: 'border-purple-200', icon: '🧠', suggestionHeader: 'Therapeutic Focus Areas' };
+      case 'career': return { title: 'Professional Executive Summary', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', icon: '💼', suggestionHeader: 'Strategic Career Paths' };
+      case 'relationship': return { title: 'Interpersonal Dynamics Audit', color: 'text-pink-700', bg: 'bg-pink-50', border: 'border-pink-200', icon: '❤️', suggestionHeader: 'Relationship Milestones' };
+      case 'school': default: return { title: 'Student Developmental Report', color: 'text-brand-700', bg: 'bg-brand-50', border: 'border-brand-200', icon: '🎓', suggestionHeader: 'Academic Career Paths' };
+    }
+  };
+
+  const theme = getSessionTheme(sessionType);
+
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-8 animate-fade-in pb-20 print:p-0 print:max-w-none">
-      {/* Header Banner */}
-      <div className="flex flex-col md:flex-row justify-between items-center mb-12 print:mb-6">
+    <div className="w-full max-w-7xl mx-auto px-4 py-8 animate-fade-in pb-20 print:p-0">
+      <div className="flex flex-col md:flex-row justify-between items-center mb-12">
         <div className="text-center md:text-left">
-          <h1 className="text-4xl font-bold text-slate-900 mb-2">Comprehensive Profile</h1>
-          <p className="text-slate-500">Analysis Depth: <span className="text-brand-600 font-semibold">Full Behavioral Audit</span></p>
+          <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
+            <span className="text-2xl">{theme.icon}</span>
+            <h1 className="text-4xl font-bold text-slate-900">{theme.title}</h1>
+          </div>
+          <p className="text-slate-500 italic">Self-Evolving Intelligence Mode Active</p>
         </div>
-        <div className="mt-4 md:mt-0 flex gap-4 print:hidden">
+        
+        {!hasLearned ? (
           <button 
-            onClick={handlePrint}
-            className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 font-semibold transition-colors"
+            onClick={handleValidateAndGrow}
+            disabled={isLearning}
+            className="mt-4 md:mt-0 px-6 py-3 bg-brand-600 text-white font-bold rounded-xl shadow-lg hover:shadow-brand-100 transition-all flex items-center disabled:opacity-50"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
-            </svg>
-            Print / Save PDF
+            {isLearning ? (
+              <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></span> Learning...</>
+            ) : (
+              <><span className="mr-2">🧠</span> Validate & Feed AI Intelligence</>
+            )}
           </button>
-        </div>
+        ) : (
+          <div className="mt-4 md:mt-0 px-6 py-3 bg-emerald-100 text-emerald-700 font-bold rounded-xl border border-emerald-200 animate-bounce">
+            ✓ Knowledge Added to Global Memory
+          </div>
+        )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 print:block">
-        
-        {/* Left Column: Archetype & Risk */}
-        <div className="lg:col-span-4 space-y-6 print:mb-8 print:break-inside-avoid">
-          {/* Main Card */}
-          <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 overflow-hidden relative print:shadow-none print:border-2">
-            <div className={`absolute top-0 left-0 w-full h-2 ${isHighRisk ? 'bg-red-500' : 'bg-brand-500'}`}></div>
-            <h2 className="text-xs font-bold tracking-widest text-slate-400 uppercase mb-2">Dominant Archetype</h2>
-            <h1 className={`text-3xl font-extrabold mb-4 ${isHighRisk ? 'text-red-700' : 'text-brand-700'}`}>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="lg:col-span-4 space-y-6">
+          <div className={`bg-white p-6 rounded-2xl shadow-lg border-t-8 ${theme.border}`}>
+            <h2 className="text-xs font-bold tracking-widest text-slate-400 uppercase mb-2">Assessed Archetype</h2>
+            <h1 className={`text-3xl font-extrabold mb-4 ${isHighRisk ? 'text-red-700' : theme.color}`}>
               {result.archetype}
             </h1>
-            <p className="text-slate-600 leading-relaxed text-sm">
-              {result.archetypeDescription}
-            </p>
+            <p className="text-slate-600 leading-relaxed text-sm">{result.archetypeDescription}</p>
           </div>
 
-          {/* Risk Panel */}
-          <div className={`p-6 rounded-2xl border-2 shadow-sm ${isHighRisk ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'} print:bg-white print:border-slate-800`}>
+          <div className={`p-6 rounded-2xl border-2 shadow-sm ${isHighRisk ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
              <div className="flex items-center justify-between mb-4">
-               <h3 className="font-bold text-slate-700">Risk Assessment Model</h3>
-               <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase print:border print:border-slate-800 print:text-black ${getRiskColor(riskLevel)}`}>
-                 {riskLevel} Risk
-               </span>
+               <h3 className="font-bold text-slate-700">Safety & Risk Analysis</h3>
+               <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase bg-slate-100`}>{riskLevel} Risk</span>
              </div>
-             
              <div className="mb-4 text-sm text-slate-700 italic border-l-4 border-slate-300 pl-3">
                {result.riskAssessment.detailedAnalysis}
              </div>
-
-             {result.riskAssessment.flags.length > 0 ? (
-               <div className="space-y-2">
-                 <p className="text-xs text-slate-500 uppercase font-semibold">Detected Patterns:</p>
-                 <ul className="space-y-1">
-                   {result.riskAssessment.flags.map((flag, i) => (
-                     <li key={i} className="flex items-start text-sm text-slate-700 bg-slate-50 p-2 rounded print:bg-transparent">
-                       <svg className="w-4 h-4 mr-2 text-red-500 mt-0.5 print:text-black" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                       {flag}
-                     </li>
-                   ))}
-                 </ul>
-               </div>
-             ) : (
-               <div className="flex items-center text-emerald-700 text-sm bg-emerald-50 p-3 rounded-lg border border-emerald-100 print:bg-transparent print:text-black print:border-slate-300">
-                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                 No maladaptive behavioral flags detected.
-               </div>
-             )}
           </div>
         </div>
 
-        {/* Center Column: Charts */}
-        <div className="lg:col-span-4 space-y-6 print:mb-8 print:break-inside-avoid">
-           <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 h-full flex flex-col print:shadow-none print:border-2">
-             <h3 className="font-semibold text-slate-900 mb-2 text-center">Hexagonal Personality Map</h3>
-             <p className="text-xs text-center text-slate-400 mb-6">6-Axis Dimensional Analysis</p>
-             
-             <div className="flex-grow min-h-[300px] w-full relative print:h-[400px]">
+        <div className="lg:col-span-4">
+           <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 h-full">
+             <h3 className="font-semibold text-slate-900 mb-6 text-center">Trait Intelligence Profile</h3>
+             <div className="h-[300px] w-full">
                <ResponsiveContainer width="100%" height="100%">
                  <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
-                   <PolarGrid stroke="#cbd5e1" strokeDasharray="3 3" />
-                   <PolarAngleAxis 
-                     dataKey="subject" 
-                     tick={{ fill: '#475569', fontSize: 11, fontWeight: 700 }} 
-                   />
-                   <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                   <PolarGrid stroke="#cbd5e1" />
+                   <PolarAngleAxis dataKey="subject" tick={{ fill: '#475569', fontSize: 10, fontWeight: 700 }} />
                    <Radar
-                     name="Avg. Student"
-                     dataKey="Baseline"
-                     stroke="#94a3b8"
-                     strokeWidth={1}
-                     fill="#f1f5f9"
-                     fillOpacity={0.4}
-                   />
-                   <Radar
-                     name="Student"
+                     name="Patient Profile"
                      dataKey="Student"
-                     stroke={isHighRisk ? '#dc2626' : '#7c3aed'}
+                     stroke={isHighRisk ? '#dc2626' : '#2563eb'}
                      strokeWidth={3}
-                     fill={isHighRisk ? '#fee2e2' : '#8b5cf6'}
+                     fill={isHighRisk ? '#fee2e2' : '#dbeafe'}
                      fillOpacity={0.5}
                    />
-                   <Legend iconType="circle" wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }}/>
-                   <Tooltip 
-                     contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}
-                     itemStyle={{ fontSize: '12px', fontWeight: 600 }}
-                   />
+                   <Tooltip />
                  </RadarChart>
                </ResponsiveContainer>
-             </div>
-             
-             <div className="grid grid-cols-2 gap-2 mt-4 print:grid-cols-3">
-                {Object.entries(result.traits).map(([trait, score]) => (
-                  <div key={trait} className="bg-slate-50 p-2 rounded border border-slate-100 flex justify-between items-center print:bg-white print:border-slate-300">
-                    <span className="text-xs font-semibold text-slate-500 capitalize">{trait.replace('_', ' ')}</span>
-                    <span className={`text-sm font-bold ${isHighRisk && trait === 'integrity' && score < 40 ? 'text-red-600' : 'text-slate-800'}`}>
-                      {score}%
-                    </span>
-                  </div>
-                ))}
              </div>
            </div>
         </div>
 
-        {/* Right Column: Career & Advice */}
-        <div className="lg:col-span-4 space-y-6 print:break-inside-avoid">
-          <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100 print:shadow-none print:border-2">
-            {isCritical ? (
-              <div className="bg-red-50 p-4 rounded-lg border border-red-100 print:bg-white print:border-red-500">
-                <h3 className="font-bold text-red-900 mb-2 flex items-center">
-                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                   Counseling Required
-                </h3>
-                <p className="text-sm text-red-800">
-                   Specific behavioral patterns suggest professional counseling is the primary recommendation over career guidance.
-                </p>
-              </div>
-            ) : (
-              <>
-                <h3 className="font-bold text-slate-900 mb-4 flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-brand-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-                  Strategic Career Paths
-                </h3>
-                <div className="space-y-4">
-                  {result.careerPathSuggestions.map((path, idx) => (
-                    <div key={idx} className="group p-3 hover:bg-brand-50 rounded-lg transition-colors border border-transparent hover:border-brand-100 print:border-slate-200">
-                      <div className="font-bold text-slate-800 group-hover:text-brand-700">{path.title}</div>
-                      <div className="text-xs text-slate-500 leading-snug mb-1">{path.description}</div>
-                      <div className="text-[10px] text-brand-600 font-medium uppercase tracking-wide">
-                        {path.strategicFit}
-                      </div>
-                    </div>
-                  ))}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="bg-white p-6 rounded-2xl shadow-lg border border-slate-100">
+            <h3 className={`font-bold ${theme.color} mb-4`}>★ {theme.suggestionHeader}</h3>
+            <div className="space-y-4">
+              {result.careerPathSuggestions.map((path, idx) => (
+                <div key={idx} className="p-3 rounded-lg border border-slate-50 hover:bg-slate-50 transition-all">
+                  <div className="font-bold text-slate-800 text-sm">{path.title}</div>
+                  <div className="text-[10px] text-slate-500">{path.description}</div>
                 </div>
-              </>
-            )}
+              ))}
+            </div>
           </div>
 
-          <div className="bg-gradient-to-br from-indigo-50 to-white p-6 rounded-2xl border border-indigo-100 shadow-sm print:shadow-none print:border-2 print:bg-white">
-            <h3 className="font-bold text-indigo-900 mb-3 text-sm uppercase tracking-wide">Detailed Growth Counsel</h3>
-            <p className="text-sm text-indigo-900 leading-relaxed whitespace-pre-wrap">
-              {result.counselingAdvice}
-            </p>
+          <div className={`${theme.bg} p-6 rounded-2xl border ${theme.border}`}>
+            <h3 className="font-bold text-slate-800 mb-3 text-sm uppercase">Growth Counsel Report</h3>
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{result.counselingAdvice}</p>
           </div>
 
-          <button onClick={onReset} className="w-full py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-colors print:hidden">
-            Start New Assessment
+          <button onClick={onReset} className="w-full py-4 rounded-xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all">
+            End Session & Return
           </button>
         </div>
-
       </div>
     </div>
   );
