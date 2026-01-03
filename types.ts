@@ -66,6 +66,8 @@ export interface AnalysisResult {
 export enum AppStep {
   WELCOME,
   SESSION_SELECTION,
+  NOTES_PROMPT,
+  NOTES_INPUT,
   MCQ_PHASE,
   GENERATING_PHASE1,
   ASSESSMENT,
