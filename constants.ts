@@ -1,5 +1,5 @@
 
-import { Question, MCQQuestion, SessionType } from './types';
+import { Question, MCQQuestion, SessionType } from './types.ts';
 
 // School / Academic Counseling (The original set)
 const SCHOOL_POOL: MCQQuestion[] = [
@@ -218,7 +218,7 @@ const CAREER_POOL: MCQQuestion[] = [
     text: "How do you handle repetitive tasks?",
     category: "work_style",
     options: [
-      { value: "automate", label: "I find a way to automate or delegate them." },
+      { value: "automate", label: "I find a way to automate or delete them." },
       { value: "grind", label: "I just put my head down and do them." },
       { value: "bore", label: "I get distracted and procrastinate." },
       { value: "meditative", label: "I find them relaxing." }
