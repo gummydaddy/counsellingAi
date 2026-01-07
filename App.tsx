@@ -1,15 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
-import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType } from './types';
-import { SESSION_MCQ_POOLS } from './constants';
-import { analyzeStudentAnswers, generatePhase1Questions } from './services/geminiService';
-import { KnowledgeBaseService } from './services/knowledgeBaseService';
-import WelcomeScreen from './components/WelcomeScreen';
-import Assessment from './components/Assessment';
-import ResultsView from './components/ResultsView';
-import MCQPhase from './components/MCQPhase';
-import SessionSelectionScreen from './components/SessionSelectionScreen';
-import { CounselorNotesLayer } from './components/CounselorNotesLayer';
+import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType } from './types.ts';
+import { SESSION_MCQ_POOLS } from './constants.ts';
+import { analyzeStudentAnswers, generatePhase1Questions } from './services/geminiService.ts';
+import { KnowledgeBaseService } from './services/knowledgeBaseService.ts';
+import WelcomeScreen from './components/WelcomeScreen.tsx';
+import Assessment from './components/Assessment.tsx';
+import ResultsView from './components/ResultsView.tsx';
+import MCQPhase from './components/MCQPhase.tsx';
+import SessionSelectionScreen from './components/SessionSelectionScreen.tsx';
+import { CounselorNotesLayer } from './components/CounselorNotesLayer.tsx';
 
 const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);

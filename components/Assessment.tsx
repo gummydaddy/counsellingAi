@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
-import { Question, Answer, AssessmentPhase, SessionType } from '../types';
-import { generateDeepDiveQuestions, generateRapportQuestion } from '../services/geminiService';
+import { Question, Answer, AssessmentPhase, SessionType } from '../types.ts';
+import { generateDeepDiveQuestions, generateRapportQuestion } from '../services/geminiService.ts';
 
 interface Props {
   initialQuestions: Question[];
@@ -37,11 +37,9 @@ const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete
     setCurrentInput('');
     setError('');
 
-    // State Machine Transitions
     if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
     } else {
-      // Logic after finishing current list of questions
       if (phase === AssessmentPhase.INITIAL) {
         setPhase(AssessmentPhase.GENERATING_RAPPORT);
         try {
@@ -117,7 +115,6 @@ const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete
       </div>
 
       <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-100 min-h-[450px] flex flex-col justify-between animate-fade-in-up relative overflow-hidden">
-        
         <div className="absolute top-0 right-0 p-4">
            <span className={`px-3 py-1 text-xs font-bold uppercase rounded-full tracking-wider shadow-sm border ${label.color}`}>
              {label.text}
@@ -144,14 +141,6 @@ const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete
               className={`w-full p-6 text-lg border-2 rounded-2xl focus:ring-0 transition-all min-h-[180px] resize-none ${getPhaseStyles()}`}
               autoFocus
             />
-            <div className="flex justify-between items-center mt-2 px-1">
-              <span className="text-xs text-slate-400 italic">
-                {phase === AssessmentPhase.RAPPORT && "Strategic Patient Rapport phase: Speak freely."}
-              </span>
-              <span className="text-xs text-slate-400">
-                {currentInput.length} characters
-              </span>
-            </div>
           </div>
           
           {error && (
@@ -173,9 +162,6 @@ const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete
             }`}
           >
             {currentIndex === questions.length - 1 ? 'Complete Assessment' : 'Continue'}
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 ml-2" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 01.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
-            </svg>
           </button>
         </div>
       </div>

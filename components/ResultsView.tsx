@@ -1,15 +1,15 @@
 
 import React, { useState } from 'react';
-import { AnalysisResult, SessionType, Answer } from '../types';
-import { generateMetaInsight } from '../services/geminiService';
-import { KnowledgeBaseService } from '../services/knowledgeBaseService';
+import { AnalysisResult, SessionType, Answer } from '../types.ts';
+import { generateMetaInsight } from '../services/geminiService.ts';
+import { KnowledgeBaseService } from '../services/knowledgeBaseService.ts';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
 
 interface Props {
   result: AnalysisResult;
-  answers: Answer[]; // Added to allow insight generation
+  answers: Answer[];
   onReset: () => void;
 }
 

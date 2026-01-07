@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
-import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types";
-import { KnowledgeBaseService } from "./knowledgeBaseService";
+import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
+import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
 const getAI = () => {
   if (!process.env.API_KEY) {
@@ -232,9 +232,6 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
   }
 };
 
-/**
- * LEARNING LOOP: Generates a meta-insight from the session to grow the AI's intelligence.
- */
 export const generateMetaInsight = async (result: AnalysisResult, answers: Answer[]): Promise<{pattern: string, recommendation: string}> => {
   const ai = getAI();
   const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
