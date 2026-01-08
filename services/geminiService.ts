@@ -4,9 +4,16 @@ import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../typ
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
 const getAI = () => {
-  const apiKey = process.env.API_KEY;
+  // Try getting from injected process.env (Vite define)
+  let apiKey = '';
+  try {
+    apiKey = process.env.API_KEY;
+  } catch (e) {
+    console.error("Process environment is not accessible");
+  }
+
   if (!apiKey) {
-    throw new Error("API Key is missing. Please ensure API_KEY is set in your Vercel Environment Variables.");
+    throw new Error("API Key is missing. Ensure you have added 'API_KEY' to your Vercel Environment Variables and redeployed.");
   }
   return new GoogleGenAI({ apiKey });
 };

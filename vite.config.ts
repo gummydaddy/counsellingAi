@@ -3,15 +3,20 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   define: {
-    // This bridges the Vercel API_KEY environment variable to the client side.
-    // It ensures that 'process.env.API_KEY' is replaced with your actual key during the build.
-    'process.env.API_KEY': JSON.stringify(process.env.API_KEY)
+    // This strictly replaces the 'process.env.API_KEY' string in your code with the actual key value
+    'process.env.API_KEY': JSON.stringify(process.env.API_KEY || ''),
+    'process.env.NODE_ENV': JSON.stringify('production')
   },
   build: {
     rollupOptions: {
-      // We mark these as external so Vite doesn't try to bundle them.
-      // They will be resolved at runtime by the browser via the importmap in index.html.
-      external: ['@google/genai', 'react', 'react-dom', 'recharts'],
+      // These match the importmap in index.html exactly
+      external: [
+        'react',
+        'react-dom',
+        'react-dom/client',
+        'recharts',
+        '@google/genai'
+      ],
     },
   },
 });
