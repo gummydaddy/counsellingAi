@@ -4,10 +4,11 @@ import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../typ
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
 const getAI = () => {
-  if (!process.env.API_KEY) {
-    throw new Error("API Key is missing");
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please ensure API_KEY is set in your Vercel Environment Variables.");
   }
-  return new GoogleGenAI({ apiKey: process.env.API_KEY });
+  return new GoogleGenAI({ apiKey });
 };
 
 const parseResult = <T>(text: string | undefined): T | null => {
@@ -89,8 +90,8 @@ export const generatePhase1Questions = async (
     }));
     const raw = parseResult<Array<{text: string, category: string}>>(response.text);
     return raw?.map((q, idx) => ({ id: 50 + idx, text: q.text, category: q.category, isDynamic: true })) || [];
-  } catch (e) {
-    return [{ id: 1, text: "Can you share what specifically led you to seek a session today?", category: "intro" }];
+  } catch (e: any) {
+    throw new Error(`AI Generation failed: ${e.message}`);
   }
 };
 
@@ -122,8 +123,8 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
     }));
     const raw = parseResult<{text: string, category: string}>(response.text);
     return { id: 75, text: raw?.text || "What else would you like to share about your experience?", category: "rapport", isDynamic: true };
-  } catch (e) {
-    return { id: 75, text: "In your own words, how would you describe your ideal outcome for this situation?", category: "rapport", isDynamic: true };
+  } catch (e: any) {
+    throw new Error(`Rapport generation failed: ${e.message}`);
   }
 };
 
@@ -158,8 +159,8 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
     }));
     const raw = parseResult<Array<{text: string, category: string}>>(response.text);
     return raw?.map((q, idx) => ({ id: 100 + idx, text: q.text, category: q.category, isDynamic: true })) || [];
-  } catch (e) {
-    return [{ id: 99, text: "Could you expand on your last point with a specific example?", category: "deep_dive" }];
+  } catch (e: any) {
+    throw new Error(`Deep dive generation failed: ${e.message}`);
   }
 };
 
@@ -227,8 +228,8 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
     const res = parseResult<AnalysisResult>(response.text);
     if (res) res.sessionType = sessionType;
     return res || {} as AnalysisResult;
-  } catch (e) {
-    throw new Error("Analysis failed.");
+  } catch (e: any) {
+    throw new Error(`Analysis failed: ${e.message}`);
   }
 };
 
@@ -263,7 +264,7 @@ export const generateMetaInsight = async (result: AnalysisResult, answers: Answe
       }
     }));
     return parseResult<{pattern: string, recommendation: string}>(response.text) || { pattern: "Undetermined", recommendation: "Standard protocol" };
-  } catch (e) {
-    return { pattern: "Undetermined", recommendation: "Standard protocol" };
+  } catch (e: any) {
+    throw new Error(`Meta-insight generation failed: ${e.message}`);
   }
 };

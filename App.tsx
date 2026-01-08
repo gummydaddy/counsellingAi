@@ -42,8 +42,8 @@ const App: React.FC = () => {
         const generatedQuestions = await generatePhase1Questions(null, sessionType, notes);
         setPhase1Questions(generatedQuestions);
         setStep(AppStep.ASSESSMENT);
-      } catch (e) {
-        setErrorMsg("Expert context ingestion failed.");
+      } catch (e: any) {
+        setErrorMsg(`Context ingestion failed: ${e.message || 'Check your API Key settings.'}`);
         setStep(AppStep.ERROR);
       }
     } else {
@@ -57,8 +57,8 @@ const App: React.FC = () => {
       const generatedQuestions = await generatePhase1Questions(answers, sessionType, null);
       setPhase1Questions(generatedQuestions);
       setStep(AppStep.ASSESSMENT);
-    } catch (e) {
-      setErrorMsg("Failed to generate personalized questions.");
+    } catch (e: any) {
+      setErrorMsg(`Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`);
       setStep(AppStep.ERROR);
     }
   };
@@ -70,8 +70,8 @@ const App: React.FC = () => {
       const analysis = await analyzeStudentAnswers(answers, sessionType);
       setResult(analysis);
       setStep(AppStep.RESULTS);
-    } catch (e) {
-      setErrorMsg("Analysis Engine failed. Ensure API key is valid.");
+    } catch (e: any) {
+      setErrorMsg(`Analysis Engine failed: ${e.message || 'Check browser console for details.'}`);
       setStep(AppStep.ERROR);
     }
   };
@@ -141,10 +141,17 @@ const App: React.FC = () => {
         )}
 
         {step === AppStep.ERROR && (
-          <div className="text-center py-12 px-4">
-            <h3 className="text-xl font-bold text-red-600 mb-4">Assessment Interrupted</h3>
-            <p className="text-slate-600 mb-6">{errorMsg}</p>
-            <button onClick={handleReset} className="px-6 py-2 bg-slate-200 rounded-lg font-bold">Restart System</button>
+          <div className="text-center py-12 px-4 max-w-lg mx-auto">
+             <div className="mb-6 inline-flex items-center justify-center w-12 h-12 bg-red-100 rounded-full text-red-600">
+               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+             </div>
+            <h3 className="text-xl font-bold text-red-600 mb-2">System Interrupted</h3>
+            <p className="text-slate-600 mb-6 bg-white p-4 rounded-xl border border-slate-200 text-sm font-mono break-all">
+              {errorMsg}
+            </p>
+            <button onClick={handleReset} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100">
+              Restart Session
+            </button>
           </div>
         )}
       </main>
