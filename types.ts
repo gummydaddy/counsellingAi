@@ -33,7 +33,7 @@ export interface MCQAnswer {
 }
 
 export interface AnalysisResult {
-  sessionType?: SessionType; // Added for UI context
+  sessionType?: SessionType;
   archetype: string;
   archetypeDescription: string;
   riskAssessment: {
@@ -56,6 +56,13 @@ export interface AnalysisResult {
     strategicFit: string;
   }>;
   counselingAdvice: string;
+  // New specialized fields
+  professionalDiagnosis?: string;
+  suggestedActionPlan?: string[];
+  primaryPrecautions?: string[];
+  suggestedMedicines?: string[]; // Specifically for medical context
+  rootCauses?: string[]; // Specifically for psychological
+  interpersonalStrategy?: string; // Specifically for relationship
 }
 
 export enum AppStep {

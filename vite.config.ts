@@ -9,13 +9,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
-      // These match the importmap in index.html exactly
+      // These match the importmap in index.html exactly to ensure the browser handles resolution
       external: [
         'react',
         'react-dom',
         'react-dom/client',
-        'recharts',
-        '@google/genai'
+        'recharts'
       ],
     },
   },
