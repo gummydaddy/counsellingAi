@@ -1,4 +1,3 @@
-
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
@@ -7,9 +6,16 @@ import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 const getAPIKey = () => {
   let key = '';
   try {
-    key = process.env.API_KEY || (window as any).process?.env?.API_KEY || '';
+    // Check standard process.env, Vite's import.meta.env (if available), and window shim
+    key = process.env.API_KEY || 
+          (import.meta as any).env?.VITE_API_KEY || 
+          (window as any).process?.env?.API_KEY || 
+          '';
   } catch (e) { console.error(e); }
   
+  // Strict trimming to prevent whitespace issues causing provider detection failure
+  key = key.trim();
+
   if (!key) throw new Error("API Key is missing. Check your environment variables.");
   return key;
 };
@@ -22,15 +28,26 @@ const detectProvider = (key: string): Provider => {
   return 'google'; // Default to Google for AIza... keys
 };
 
-const getModel = (provider: Provider, tier: 'fast' | 'smart') => {
-  if (provider === 'google') {
-    return tier === 'fast' ? 'gemini-1.5-flash' : 'gemini-1.5-pro';
+// Primary and Fallback Models
+const MODELS = {
+  google: {
+    // Updated to latest Gemini 3 Preview models as per guidelines
+    primary: 'gemini-3-flash-preview',
+    fallback: 'gemini-3-pro-preview'
+  },
+  openrouter: {
+    // OpenRouter mappings
+    primary: 'google/gemini-flash-1.5',
+    fallback: 'google/gemini-pro-1.5'
+  },
+  openai: {
+    primary: 'gpt-4o-mini',
+    fallback: 'gpt-4o'
   }
-  if (provider === 'openrouter') {
-    // Mapping to widely available models on OpenRouter
-    return tier === 'fast' ? 'google/gemini-flash-1.5' : 'google/gemini-pro-1.5';
-  }
-  return tier === 'fast' ? 'gpt-4o-mini' : 'gpt-4o';
+};
+
+const getModel = (provider: Provider, useFallback: boolean = false) => {
+  return useFallback ? MODELS[provider].fallback : MODELS[provider].primary;
 };
 
 // --- Schema Definitions (Plain Objects) ---
@@ -106,11 +123,12 @@ const callAI = async <T>(
   prompt: string, 
   schema: any, 
   systemInstruction: string,
-  tier: 'fast' | 'smart' = 'fast'
+  isRetry = false
 ): Promise<T> => {
   const apiKey = getAPIKey();
   const provider = detectProvider(apiKey);
-  const model = getModel(provider, tier);
+  // If this is a retry call, use the fallback model
+  const model = getModel(provider, isRetry);
 
   let responseText = '';
 
@@ -134,8 +152,12 @@ const callAI = async <T>(
       });
 
       if (!res.ok) {
+        // If 404 and not already retrying, throw specific error to trigger fallback
+        if (res.status === 404 && !isRetry) {
+          throw new Error("MODEL_NOT_FOUND");
+        }
         const err = await res.json();
-        throw new Error(err.error?.message || res.statusText);
+        throw new Error(err.error?.message || `Google API Error: ${res.statusText}`);
       }
 
       const data = await res.json();
@@ -149,26 +171,39 @@ const callAI = async <T>(
       
       const fullSystemPrompt = `${systemInstruction}\n\nIMPORTANT: You must respond with valid JSON that strictly follows this schema:\n${JSON.stringify(schema, null, 2)}`;
 
+      const body: any = {
+        model: model,
+        messages: [
+          { role: 'system', content: fullSystemPrompt },
+          { role: 'user', content: prompt }
+        ]
+      };
+
+      // Only add response_format for OpenAI models or when strictly required. 
+      if (model.includes('gpt') || provider === 'openai') {
+        body.response_format = { type: "json_object" };
+      }
+
       const res = await fetch(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
-          ...(provider === 'openrouter' ? { 'HTTP-Referer': window.location.origin } : {})
+          ...(provider === 'openrouter' ? { 
+            'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://mindpath-ai.vercel.app',
+            'X-Title': 'MindPath AI'
+          } : {})
         },
-        body: JSON.stringify({
-          model: model,
-          messages: [
-            { role: 'system', content: fullSystemPrompt },
-            { role: 'user', content: prompt }
-          ],
-          response_format: { type: "json_object" }
-        })
+        body: JSON.stringify(body)
       });
 
       if (!res.ok) {
+        // If 404 and not already retrying, throw specific error to trigger fallback
+        if (res.status === 404 && !isRetry) {
+          throw new Error("MODEL_NOT_FOUND");
+        }
         const err = await res.json();
-        throw new Error(err.error?.message || res.statusText);
+        throw new Error(err.error?.message || `${provider} API Error: ${res.statusText}`);
       }
 
       const data = await res.json();
@@ -183,7 +218,18 @@ const callAI = async <T>(
     return JSON.parse(cleaned) as T;
 
   } catch (e: any) {
-    console.error("AI Service Error:", e);
+    // Fallback Logic
+    if (e.message === "MODEL_NOT_FOUND" && !isRetry) {
+      console.warn(`Primary model ${model} not found. Retrying with fallback...`);
+      return callAI<T>(prompt, schema, systemInstruction, true);
+    }
+
+    console.error(`AI Service Error (${provider} - ${model}):`, e);
+    
+    // Provide a more user-friendly error message
+    if (e.message === "MODEL_NOT_FOUND" || (e.message && e.message.includes('Requested entity was not found'))) {
+      throw new Error(`The model '${model}' is unavailable with this API Key. Please check your key permissions or region support.`);
+    }
     throw new Error(`AI Request Failed: ${e.message}`);
   }
 };
@@ -261,8 +307,7 @@ export const generatePhase1Questions = async (
   const raw = await callWithRetry(() => callAI<Array<{text: string, category: string}>>(
     prompt, 
     SCHEMAS.questions, 
-    role, 
-    'fast'
+    role
   ));
   
   return raw.map((q, idx) => ({ id: 50 + idx, text: q.text, category: q.category, isDynamic: true }));
@@ -280,8 +325,7 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
   const raw = await callWithRetry(() => callAI<{text: string, category: string}>(
     prompt, 
     SCHEMAS.rapport, 
-    role, 
-    'fast'
+    role
   ));
 
   return { id: 75, text: raw?.text || "How are you feeling about the process so far?", category: "rapport", isDynamic: true };
@@ -299,8 +343,7 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
   const raw = await callWithRetry(() => callAI<Array<{text: string, category: string}>>(
     prompt, 
     SCHEMAS.questions, 
-    role, 
-    'fast'
+    role
   ));
 
   return raw.map((q, idx) => ({ id: 100 + idx, text: q.text, category: q.category, isDynamic: true }));
@@ -318,8 +361,7 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
   const res = await callWithRetry(() => callAI<AnalysisResult>(
     prompt, 
     SCHEMAS.analysis, 
-    roleInstruction, 
-    'smart'
+    roleInstruction
   ));
 
   if (res) res.sessionType = sessionType;
@@ -337,8 +379,7 @@ export const generateMetaInsight = async (result: AnalysisResult, answers: Answe
   const res = await callWithRetry(() => callAI<{pattern: string, recommendation: string}>(
     prompt, 
     SCHEMAS.metaInsight, 
-    "You are a Clinical Supervisor analyzing session patterns.", 
-    'fast'
+    "You are a Clinical Supervisor analyzing session patterns."
   ));
 
   return res || { pattern: "Undetermined", recommendation: "Standard protocol" };
