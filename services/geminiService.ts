@@ -1,3 +1,4 @@
+
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
@@ -6,17 +7,17 @@ import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 const getAPIKey = () => {
   let key = '';
   try {
-    // Check standard process.env, Vite's import.meta.env (if available), and window shim
-    key = process.env.API_KEY || 
-          (import.meta as any).env?.VITE_API_KEY || 
+    // Priority: VITE_API_KEY (Vercel/Vite standard) -> process.env.API_KEY (Define plugin) -> window override
+    key = (import.meta as any).env?.VITE_API_KEY || 
+          process.env.API_KEY || 
           (window as any).process?.env?.API_KEY || 
           '';
   } catch (e) { console.error(e); }
   
-  // Strict trimming to prevent whitespace issues causing provider detection failure
+  // Strict trimming is crucial for copy-pasted keys
   key = key.trim();
 
-  if (!key) throw new Error("API Key is missing. Check your environment variables.");
+  if (!key) throw new Error("API Key is missing. Please add VITE_API_KEY to your environment variables.");
   return key;
 };
 
@@ -24,21 +25,24 @@ type Provider = 'google' | 'openrouter' | 'openai';
 
 const detectProvider = (key: string): Provider => {
   if (key.startsWith('sk-or-')) return 'openrouter';
-  if (key.startsWith('sk-')) return 'openai';
-  return 'google'; // Default to Google for AIza... keys
+  if (key.startsWith('sk-') && !key.startsWith('sk-or-')) return 'openai';
+  if (key.startsWith('AIza')) return 'google';
+  return 'google'; // Default fallback
 };
 
-// Primary and Fallback Models
+// Robust Model Configuration with Emergency Fallbacks
 const MODELS = {
   google: {
-    // Updated to latest Gemini 3 Preview models as per guidelines
+    // Using latest stable preview models as requested, but falling back to stable 1.5 if needed
     primary: 'gemini-3-flash-preview',
-    fallback: 'gemini-3-pro-preview'
+    fallback: 'gemini-1.5-pro' 
   },
   openrouter: {
-    // OpenRouter mappings
+    // OpenRouter specific mappings
     primary: 'google/gemini-flash-1.5',
-    fallback: 'google/gemini-pro-1.5'
+    fallback: 'google/gemini-pro-1.5',
+    // Emergency model that is highly available on OpenRouter if Google upstream fails
+    emergency: 'meta-llama/llama-3.1-70b-instruct'
   },
   openai: {
     primary: 'gpt-4o-mini',
@@ -46,8 +50,15 @@ const MODELS = {
   }
 };
 
-const getModel = (provider: Provider, useFallback: boolean = false) => {
-  return useFallback ? MODELS[provider].fallback : MODELS[provider].primary;
+const getModel = (provider: Provider, attempt: number) => {
+  const models = MODELS[provider];
+  if (attempt === 0) return models.primary;
+  if (attempt === 1) return models.fallback;
+  // OpenRouter specific emergency fallback
+  if (provider === 'openrouter' && attempt >= 2 && (models as any).emergency) {
+    return (models as any).emergency;
+  }
+  return models.fallback;
 };
 
 // --- Schema Definitions (Plain Objects) ---
@@ -123,12 +134,13 @@ const callAI = async <T>(
   prompt: string, 
   schema: any, 
   systemInstruction: string,
-  isRetry = false
+  attempt = 0
 ): Promise<T> => {
   const apiKey = getAPIKey();
   const provider = detectProvider(apiKey);
-  // If this is a retry call, use the fallback model
-  const model = getModel(provider, isRetry);
+  const model = getModel(provider, attempt);
+
+  console.log(`AI Request: Provider=${provider}, Model=${model}, Attempt=${attempt}`);
 
   let responseText = '';
 
@@ -152,10 +164,7 @@ const callAI = async <T>(
       });
 
       if (!res.ok) {
-        // If 404 and not already retrying, throw specific error to trigger fallback
-        if (res.status === 404 && !isRetry) {
-          throw new Error("MODEL_NOT_FOUND");
-        }
+        if (res.status === 404) throw new Error("MODEL_NOT_FOUND");
         const err = await res.json();
         throw new Error(err.error?.message || `Google API Error: ${res.statusText}`);
       }
@@ -179,7 +188,8 @@ const callAI = async <T>(
         ]
       };
 
-      // Only add response_format for OpenAI models or when strictly required. 
+      // Only add response_format for OpenAI models.
+      // Explicitly excluded for OpenRouter to avoid provider conflicts unless using OpenAI models via OR.
       if (model.includes('gpt') || provider === 'openai') {
         body.response_format = { type: "json_object" };
       }
@@ -198,12 +208,15 @@ const callAI = async <T>(
       });
 
       if (!res.ok) {
-        // If 404 and not already retrying, throw specific error to trigger fallback
-        if (res.status === 404 && !isRetry) {
-          throw new Error("MODEL_NOT_FOUND");
-        }
         const err = await res.json();
-        throw new Error(err.error?.message || `${provider} API Error: ${res.statusText}`);
+        const errorMessage = err.error?.message || JSON.stringify(err);
+        
+        // Detect specific OpenRouter errors
+        if (errorMessage.includes("No endpoints found") || res.status === 404 || res.status === 502) {
+             throw new Error("MODEL_NOT_FOUND");
+        }
+        
+        throw new Error(errorMessage || `${provider} API Error: ${res.statusText}`);
       }
 
       const data = await res.json();
@@ -218,19 +231,22 @@ const callAI = async <T>(
     return JSON.parse(cleaned) as T;
 
   } catch (e: any) {
-    // Fallback Logic
-    if (e.message === "MODEL_NOT_FOUND" && !isRetry) {
-      console.warn(`Primary model ${model} not found. Retrying with fallback...`);
-      return callAI<T>(prompt, schema, systemInstruction, true);
+    // Universal Fallback Logic
+    const isModelError = e.message === "MODEL_NOT_FOUND" || e.message.includes("Requested entity was not found");
+    const canRetry = attempt < 2; // Allow up to 3 attempts (0, 1, 2)
+
+    if (isModelError && canRetry) {
+      console.warn(`Attempt ${attempt} failed with ${model}. Retrying with fallback...`);
+      return callAI<T>(prompt, schema, systemInstruction, attempt + 1);
     }
 
     console.error(`AI Service Error (${provider} - ${model}):`, e);
     
-    // Provide a more user-friendly error message
-    if (e.message === "MODEL_NOT_FOUND" || (e.message && e.message.includes('Requested entity was not found'))) {
-      throw new Error(`The model '${model}' is unavailable with this API Key. Please check your key permissions or region support.`);
+    // User-friendly error
+    if (isModelError) {
+      throw new Error(`AI Provider Error: The model '${model}' is currently unavailable. Please check your API key or try again later.`);
     }
-    throw new Error(`AI Request Failed: ${e.message}`);
+    throw new Error(`AI Request Failed: ${e.message.slice(0, 100)}...`);
   }
 };
 
@@ -242,6 +258,10 @@ const callWithRetry = async <T>(
   try {
     return await fn();
   } catch (error: any) {
+    // If it's a specific API configuration error, don't blindly retry
+    if (error.message.includes("API Key") || error.message.includes("Provider Error")) {
+        throw error;
+    }
     if (retries > 0) {
       await new Promise(resolve => setTimeout(resolve, delay));
       return callWithRetry(fn, retries - 1, delay * 2);
