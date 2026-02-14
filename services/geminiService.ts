@@ -1,3 +1,4 @@
+
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
@@ -9,6 +10,16 @@ interface AIConfig {
   apiKey: string;
   provider: AIProvider;
 }
+
+// --- Constants ---
+
+const FALLBACK_QUESTIONS = [
+  { text: "What is the main challenge you are facing right now?", category: "general" },
+  { text: "How does this situation make you feel?", category: "emotional" },
+  { text: "What specific outcome are you hoping for?", category: "goal" },
+  { text: "Have you tried any solutions so far? If so, what?", category: "action" },
+  { text: "What support do you feel you need most?", category: "needs" }
+];
 
 // --- Helper Functions ---
 
@@ -358,27 +369,39 @@ export const generatePhase1Questions = async (
 
   const prompt = `
     ${learnedContext}
-    Generate 5 deep foundation questions for this ${sessionType} session.
+    Generate 5 deep foundation questions for this ${sessionType} session based on the user's initial inputs.
     Current Context: ${contextString}
     
     Return ONLY a JSON Array of objects with 'text' and 'category'.
+    Example: [{"text": "Why?", "category": "general"}]
   `;
 
-  const raw = await aiService.generateContent<any>(
-    prompt, 
-    SCHEMAS.questions, 
-    role
-  );
-  
-  // FIX: Robustly ensure we have an array to map over
-  const data = ensureArray<{text: string, category: string}>(raw);
-  
-  return data.map((q, idx) => ({ 
-    id: 50 + idx, 
-    text: q.text || "Follow up question...", 
-    category: q.category || "general", 
-    isDynamic: true 
-  }));
+  try {
+    const raw = await aiService.generateContent<any>(
+      prompt, 
+      SCHEMAS.questions, 
+      role
+    );
+    
+    // FIX: Robustly ensure we have an array to map over
+    const data = ensureArray<{text: string, category: string}>(raw);
+    
+    return data.map((q, idx) => ({ 
+      id: 50 + idx, 
+      text: q.text || "Follow up question...", 
+      category: q.category || "general", 
+      isDynamic: true 
+    }));
+  } catch (error) {
+    console.error("Phase 1 Generation failed, using fallback:", error);
+    // Return fallback questions instead of crashing
+    return FALLBACK_QUESTIONS.map((q, idx) => ({
+      id: 50 + idx,
+      text: q.text,
+      category: q.category,
+      isDynamic: true
+    }));
+  }
 };
 
 export const generateRapportQuestion = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question> => {
@@ -391,13 +414,16 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
     Return JSON Object: { "text": "...", "category": "..." }
   `;
 
-  const raw = await aiService.generateContent<{text: string, category: string}>(
-    prompt, 
-    SCHEMAS.rapport, 
-    role
-  );
-
-  return { id: 75, text: raw?.text || "How are you feeling?", category: "rapport", isDynamic: true };
+  try {
+    const raw = await aiService.generateContent<{text: string, category: string}>(
+      prompt, 
+      SCHEMAS.rapport, 
+      role
+    );
+    return { id: 75, text: raw?.text || "How are you feeling?", category: "rapport", isDynamic: true };
+  } catch (e) {
+    return { id: 75, text: "How does this make you feel overall?", category: "rapport", isDynamic: true };
+  }
 };
 
 export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question[]> => {
@@ -410,21 +436,31 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
     Return JSON Array.
   `;
 
-  const raw = await aiService.generateContent<any>(
-    prompt, 
-    SCHEMAS.questions, 
-    role
-  );
+  try {
+    const raw = await aiService.generateContent<any>(
+      prompt, 
+      SCHEMAS.questions, 
+      role
+    );
 
-  // FIX: Robustly ensure array
-  const data = ensureArray<{text: string, category: string}>(raw);
+    // FIX: Robustly ensure array
+    const data = ensureArray<{text: string, category: string}>(raw);
 
-  return data.map((q, idx) => ({ 
-    id: 100 + idx, 
-    text: q.text || "Elaborate further...", 
-    category: q.category || "deep_dive", 
-    isDynamic: true 
-  }));
+    return data.map((q, idx) => ({ 
+      id: 100 + idx, 
+      text: q.text || "Elaborate further...", 
+      category: q.category || "deep_dive", 
+      isDynamic: true 
+    }));
+  } catch (error) {
+    // Fallback for deep dive
+    return FALLBACK_QUESTIONS.map((q, idx) => ({
+      id: 100 + idx,
+      text: "Could you tell me more about that?",
+      category: "deep_dive",
+      isDynamic: true
+    }));
+  }
 };
 
 export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType): Promise<AnalysisResult> => {
