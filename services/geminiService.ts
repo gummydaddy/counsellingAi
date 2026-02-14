@@ -2,66 +2,222 @@
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
-// --- Universal Client Configuration ---
+// --- Types & Interfaces ---
 
-const getAPIKey = () => {
-  let key = '';
-  try {
-    // Priority: VITE_API_KEY (Vercel/Vite standard) -> process.env.API_KEY (Define plugin) -> window override
-    key = (import.meta as any).env?.VITE_API_KEY || 
-          process.env.API_KEY || 
-          (window as any).process?.env?.API_KEY || 
-          '';
-  } catch (e) { console.error(e); }
-  
-  // Strict trimming is crucial for copy-pasted keys
-  key = key.trim();
+export type AIProvider = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'groq';
 
-  if (!key) throw new Error("API Key is missing. Please add VITE_API_KEY to your environment variables.");
-  return key;
-};
+interface AIConfig {
+  apiKey: string;
+  provider: AIProvider;
+}
 
-type Provider = 'google' | 'openrouter' | 'openai';
+// --- Service Implementation ---
 
-const detectProvider = (key: string): Provider => {
-  if (key.startsWith('sk-or-')) return 'openrouter';
-  if (key.startsWith('sk-') && !key.startsWith('sk-or-')) return 'openai';
-  if (key.startsWith('AIza')) return 'google';
-  return 'google'; // Default fallback
-};
-
-// Robust Model Configuration with Emergency Fallbacks
-const MODELS = {
-  google: {
-    // Using latest stable preview models as requested, but falling back to stable 1.5 if needed
-    primary: 'gemini-3-flash-preview',
-    fallback: 'gemini-1.5-pro' 
-  },
-  openrouter: {
-    // OpenRouter specific mappings
-    primary: 'google/gemini-flash-1.5',
-    fallback: 'google/gemini-pro-1.5',
-    // Emergency model that is highly available on OpenRouter if Google upstream fails
-    emergency: 'meta-llama/llama-3.1-70b-instruct'
-  },
-  openai: {
-    primary: 'gpt-4o-mini',
-    fallback: 'gpt-4o'
+class AIService {
+  private getKeys() {
+    // Priority: Specific Env Vars -> Generic VITE_API_KEY with auto-detection
+    const env = (import.meta as any).env || {};
+    const processEnv = (window as any).process?.env || {};
+    
+    return {
+      gemini: env.VITE_GEMINI_API_KEY || processEnv.GEMINI_API_KEY || '',
+      openai: env.VITE_OPENAI_API_KEY || processEnv.OPENAI_API_KEY || '',
+      openrouter: env.VITE_OPENROUTER_API_KEY || processEnv.OPENROUTER_API_KEY || '',
+      anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
+      groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
+      generic: env.VITE_API_KEY || processEnv.API_KEY || ''
+    };
   }
-};
 
-const getModel = (provider: Provider, attempt: number) => {
-  const models = MODELS[provider];
-  if (attempt === 0) return models.primary;
-  if (attempt === 1) return models.fallback;
-  // OpenRouter specific emergency fallback
-  if (provider === 'openrouter' && attempt >= 2 && (models as any).emergency) {
-    return (models as any).emergency;
+  private detectProviderFromKey(key: string): AIProvider {
+    if (key.startsWith('sk-or-')) return 'openrouter';
+    if (key.startsWith('sk-ant-')) return 'anthropic';
+    if (key.startsWith('gsk_')) return 'groq';
+    if (key.startsWith('sk-')) return 'openai';
+    return 'gemini'; // Default fallback for AIza...
   }
-  return models.fallback;
-};
 
-// --- Schema Definitions (Plain Objects) ---
+  getActiveConfig(): AIConfig {
+    const keys = this.getKeys();
+    
+    // 1. Check specific keys first
+    if (keys.gemini) return { apiKey: keys.gemini, provider: 'gemini' };
+    if (keys.openrouter) return { apiKey: keys.openrouter, provider: 'openrouter' };
+    if (keys.openai) return { apiKey: keys.openai, provider: 'openai' };
+    if (keys.anthropic) return { apiKey: keys.anthropic, provider: 'anthropic' };
+    if (keys.groq) return { apiKey: keys.groq, provider: 'groq' };
+
+    // 2. Fallback to generic key
+    const genericKey = keys.generic.trim();
+    if (genericKey) {
+      return { apiKey: genericKey, provider: this.detectProviderFromKey(genericKey) };
+    }
+
+    throw new Error("No API Key configured. Please set VITE_API_KEY or specific provider keys.");
+  }
+
+  async generateContent<T>(
+    prompt: string, 
+    schema: any, 
+    systemInstruction: string,
+    retryCount = 0
+  ): Promise<T> {
+    const { apiKey, provider } = this.getActiveConfig();
+    const systemPrompt = `${systemInstruction}\n\nCRITICAL: Output MUST be valid JSON strictly following this schema:\n${JSON.stringify(schema, null, 2)}`;
+
+    try {
+      switch (provider) {
+        case 'gemini':
+          return await this.generateGemini(apiKey, prompt, schema, systemInstruction);
+        case 'openrouter':
+          return await this.generateOpenCompatible(apiKey, 'https://openrouter.ai/api/v1', 'google/gemini-flash-1.5', prompt, systemPrompt);
+        case 'openai':
+          return await this.generateOpenCompatible(apiKey, 'https://api.openai.com/v1', 'gpt-4o', prompt, systemPrompt, true);
+        case 'groq':
+          return await this.generateOpenCompatible(apiKey, 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile', prompt, systemPrompt, true);
+        case 'anthropic':
+          return await this.generateAnthropic(apiKey, prompt, systemPrompt);
+        default:
+          throw new Error(`Provider ${provider} not supported`);
+      }
+    } catch (e: any) {
+      console.error(`${provider} Generation Error (Attempt ${retryCount}):`, e);
+      
+      // Retry Logic
+      if (retryCount < 2) {
+        // Simple exponential backoff
+        await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)));
+        return this.generateContent(prompt, schema, systemInstruction, retryCount + 1);
+      }
+
+      // Fallback Logic if primary provider fails (and generic key was used)
+      // Note: If using specific keys, we don't automatically switch providers to avoid billing surprises, 
+      // but in a unified key scenario, we could.
+      
+      throw new Error(`AI Service Failed: ${e.message}`);
+    }
+  }
+
+  // --- Provider Implementations ---
+
+  private async generateGemini<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
+    const model = 'gemini-3-flash-preview';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+    
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: schema
+      }
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || res.statusText);
+    }
+
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    return this.parseJSON(text);
+  }
+
+  private async generateOpenCompatible<T>(
+    apiKey: string, 
+    baseUrl: string, 
+    model: string, 
+    prompt: string, 
+    systemPrompt: string,
+    supportsJsonMode = false
+  ): Promise<T> {
+    const body: any = {
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.1
+    };
+
+    if (supportsJsonMode) {
+      body.response_format = { type: "json_object" };
+    }
+
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    };
+
+    if (baseUrl.includes('openrouter')) {
+      headers['HTTP-Referer'] = 'https://mindpath-ai.vercel.app';
+      headers['X-Title'] = 'MindPath AI';
+    }
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || res.statusText);
+    }
+
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content;
+    return this.parseJSON(text);
+  }
+
+  private async generateAnthropic<T>(apiKey: string, prompt: string, systemPrompt: string): Promise<T> {
+    const url = 'https://api.anthropic.com/v1/messages';
+    
+    // Note: This often fails in client-side only apps due to CORS. 
+    // It works if using a proxy or if Anthropic enables CORS for specific origins.
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json',
+        'dangerously-allow-browser': 'true' // strictly for dev/demo
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-sonnet-20241022',
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || res.statusText);
+    }
+
+    const data = await res.json();
+    const text = data.content[0]?.text;
+    return this.parseJSON(text);
+  }
+
+  private parseJSON(text: string): any {
+    if (!text) throw new Error("Empty response from AI");
+    const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(cleaned);
+  }
+}
+
+// Instantiate Singleton
+export const aiService = new AIService();
+
+// --- Schema Definitions ---
 
 const SCHEMAS = {
   questions: {
@@ -128,183 +284,19 @@ const SCHEMAS = {
   }
 };
 
-// --- Universal Fetcher ---
-
-const callAI = async <T>(
-  prompt: string, 
-  schema: any, 
-  systemInstruction: string,
-  attempt = 0
-): Promise<T> => {
-  const apiKey = getAPIKey();
-  const provider = detectProvider(apiKey);
-  const model = getModel(provider, attempt);
-
-  console.log(`AI Request: Provider=${provider}, Model=${model}, Attempt=${attempt}`);
-
-  let responseText = '';
-
-  try {
-    if (provider === 'google') {
-      // Google REST API
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const payload = {
-        contents: [{ parts: [{ text: prompt }] }],
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: schema
-        }
-      };
-
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!res.ok) {
-        if (res.status === 404) throw new Error("MODEL_NOT_FOUND");
-        const err = await res.json();
-        throw new Error(err.error?.message || `Google API Error: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      responseText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
-
-    } else {
-      // OpenRouter / OpenAI API
-      const baseUrl = provider === 'openrouter' 
-        ? 'https://openrouter.ai/api/v1' 
-        : 'https://api.openai.com/v1';
-      
-      const fullSystemPrompt = `${systemInstruction}\n\nIMPORTANT: You must respond with valid JSON that strictly follows this schema:\n${JSON.stringify(schema, null, 2)}`;
-
-      const body: any = {
-        model: model,
-        messages: [
-          { role: 'system', content: fullSystemPrompt },
-          { role: 'user', content: prompt }
-        ]
-      };
-
-      // Only add response_format for OpenAI models.
-      // Explicitly excluded for OpenRouter to avoid provider conflicts unless using OpenAI models via OR.
-      if (model.includes('gpt') || provider === 'openai') {
-        body.response_format = { type: "json_object" };
-      }
-
-      const res = await fetch(`${baseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          ...(provider === 'openrouter' ? { 
-            'HTTP-Referer': typeof window !== 'undefined' ? window.location.origin : 'https://mindpath-ai.vercel.app',
-            'X-Title': 'MindPath AI'
-          } : {})
-        },
-        body: JSON.stringify(body)
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        const errorMessage = err.error?.message || JSON.stringify(err);
-        
-        // Detect specific OpenRouter errors
-        if (errorMessage.includes("No endpoints found") || res.status === 404 || res.status === 502) {
-             throw new Error("MODEL_NOT_FOUND");
-        }
-        
-        throw new Error(errorMessage || `${provider} API Error: ${res.statusText}`);
-      }
-
-      const data = await res.json();
-      responseText = data.choices?.[0]?.message?.content || '';
-    }
-
-    // Parse Response
-    if (!responseText) throw new Error("Empty response from AI");
-    
-    // Clean markdown code blocks if present (common in generic LLMs)
-    const cleaned = responseText.replace(/```json/g, '').replace(/```/g, '').trim();
-    return JSON.parse(cleaned) as T;
-
-  } catch (e: any) {
-    // Universal Fallback Logic
-    const isModelError = e.message === "MODEL_NOT_FOUND" || e.message.includes("Requested entity was not found");
-    const canRetry = attempt < 2; // Allow up to 3 attempts (0, 1, 2)
-
-    if (isModelError && canRetry) {
-      console.warn(`Attempt ${attempt} failed with ${model}. Retrying with fallback...`);
-      return callAI<T>(prompt, schema, systemInstruction, attempt + 1);
-    }
-
-    console.error(`AI Service Error (${provider} - ${model}):`, e);
-    
-    // User-friendly error
-    if (isModelError) {
-      throw new Error(`AI Provider Error: The model '${model}' is currently unavailable. Please check your API key or try again later.`);
-    }
-    throw new Error(`AI Request Failed: ${e.message.slice(0, 100)}...`);
-  }
-};
-
-const callWithRetry = async <T>(
-  fn: () => Promise<T>, 
-  retries = 2, 
-  delay = 1000
-): Promise<T> => {
-  try {
-    return await fn();
-  } catch (error: any) {
-    // If it's a specific API configuration error, don't blindly retry
-    if (error.message.includes("API Key") || error.message.includes("Provider Error")) {
-        throw error;
-    }
-    if (retries > 0) {
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return callWithRetry(fn, retries - 1, delay * 2);
-    } else {
-      throw error;
-    }
-  }
-};
-
-// --- Role Logic ---
+// --- Legacy Exported Functions (Delegators) ---
+// These ensure the rest of the app doesn't break while using the new Class-based Service
 
 const getSpecializedRoleInstructions = (type: SessionType): string => {
-  switch (type) {
-    case 'medical': 
-      return `You are a Senior MBBS, MD Physician. Act as a diagnostic specialist. 
-      Analyze the patient's symptoms and history. 
-      Provide a "Professional Diagnosis", list "Primary Precautions", and suggest "Primary Medicines" (OTC only, with clear educational disclaimers). 
-      Format your tone as professional, clinical, and reassuring.`;
-    case 'psychological': 
-      return `You are a Senior Clinical Psychologist. 
-      Analyze mental patterns, emotional regulation, and defense mechanisms. 
-      Identify "Root Causes" of current distress and suggest "Therapeutic Remedies". 
-      Think deeply about the subconscious drivers of the user's answers.`;
-    case 'career': 
-      return `You are an Executive Career Coach and Corporate Strategy Consultant. 
-      Analyze the user's professional ambition, leadership style, and logic. 
-      Create a "Professional Executive Plan" and a 5-step "Strategic Action Plan" for career advancement. 
-      Think like a CEO evaluating a high-potential candidate.`;
-    case 'relationship': 
-      return `You are a Senior Relationship Consultant and Interpersonal Mediator. 
-      Analyze attachment styles, conflict resolution patterns, and vulnerability. 
-      Provide an "Interpersonal Health Strategy" and list modifications to their communication style. 
-      Think like a mediator looking for win-win dynamics.`;
-    case 'school': 
-    default: 
-      return `You are a School Counselor and Academic Career Advisor. 
-      Think like both a mentor and a recruiter. 
-      Analyze the student's learning mindset, academic potential, and social calibration. 
-      Create a "Future Career Roadmap" that links their current traits to specific academic success paths.`;
-  }
+  const roles: Record<string, string> = {
+    medical: `You are a Senior MBBS, MD Physician. Act as a diagnostic specialist. Analyze symptoms/history. Provide "Professional Diagnosis", "Primary Precautions", "Primary Medicines" (OTC only). Professional, clinical tone.`,
+    psychological: `You are a Senior Clinical Psychologist. Analyze mental patterns, emotional regulation, defense mechanisms. Identify "Root Causes", suggest "Therapeutic Remedies". Deep subconscious analysis.`,
+    career: `You are an Executive Career Coach & Strategy Consultant. Analyze ambition, leadership, logic. Create "Professional Executive Plan", 5-step "Strategic Action Plan". Think like a CEO.`,
+    relationship: `You are a Senior Relationship Consultant. Analyze attachment styles, conflict resolution, vulnerability. Provide "Interpersonal Health Strategy". Mediator mindset.`,
+    school: `You are a School Counselor and Academic Career Advisor. Mentor and recruiter mindset. Analyze learning mindset, potential, social calibration. Create "Future Career Roadmap".`
+  };
+  return roles[type] || roles['school'];
 };
-
-// --- Exported Methods ---
 
 export const generatePhase1Questions = async (
   mcqAnswers: MCQAnswer[] | null, 
@@ -324,11 +316,11 @@ export const generatePhase1Questions = async (
     Current Context: ${contextString}
   `;
 
-  const raw = await callWithRetry(() => callAI<Array<{text: string, category: string}>>(
+  const raw = await aiService.generateContent<Array<{text: string, category: string}>>(
     prompt, 
     SCHEMAS.questions, 
     role
-  ));
+  );
   
   return raw.map((q, idx) => ({ id: 50 + idx, text: q.text, category: q.category, isDynamic: true }));
 };
@@ -342,13 +334,13 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
     Previous Context: ${formattedQA}
   `;
 
-  const raw = await callWithRetry(() => callAI<{text: string, category: string}>(
+  const raw = await aiService.generateContent<{text: string, category: string}>(
     prompt, 
     SCHEMAS.rapport, 
     role
-  ));
+  );
 
-  return { id: 75, text: raw?.text || "How are you feeling about the process so far?", category: "rapport", isDynamic: true };
+  return { id: 75, text: raw?.text || "How are you feeling?", category: "rapport", isDynamic: true };
 };
 
 export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question[]> => {
@@ -360,17 +352,17 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
     Context: ${formattedQA}
   `;
 
-  const raw = await callWithRetry(() => callAI<Array<{text: string, category: string}>>(
+  const raw = await aiService.generateContent<Array<{text: string, category: string}>>(
     prompt, 
     SCHEMAS.questions, 
     role
-  ));
+  );
 
   return raw.map((q, idx) => ({ id: 100 + idx, text: q.text, category: q.category, isDynamic: true }));
 };
 
 export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType): Promise<AnalysisResult> => {
-  const roleInstruction = getSpecializedRoleInstructions(sessionType);
+  const role = getSpecializedRoleInstructions(sessionType);
   const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
 
   const prompt = `
@@ -378,11 +370,11 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
     ${formattedQA}
   `;
 
-  const res = await callWithRetry(() => callAI<AnalysisResult>(
+  const res = await aiService.generateContent<AnalysisResult>(
     prompt, 
     SCHEMAS.analysis, 
-    roleInstruction
-  ));
+    role
+  );
 
   if (res) res.sessionType = sessionType;
   return res || {} as AnalysisResult;
@@ -396,11 +388,11 @@ export const generateMetaInsight = async (result: AnalysisResult, answers: Answe
     Answers: ${formattedQA}
   `;
 
-  const res = await callWithRetry(() => callAI<{pattern: string, recommendation: string}>(
+  const res = await aiService.generateContent<{pattern: string, recommendation: string}>(
     prompt, 
     SCHEMAS.metaInsight, 
     "You are a Clinical Supervisor analyzing session patterns."
-  ));
+  );
 
   return res || { pattern: "Undetermined", recommendation: "Standard protocol" };
 };
