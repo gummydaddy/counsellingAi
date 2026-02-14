@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AnalysisResult, SessionType, Answer } from '../types.ts';
 import { generateMetaInsight } from '../services/geminiService.ts';
 import { KnowledgeBaseService } from '../services/knowledgeBaseService.ts';
@@ -16,22 +16,39 @@ interface Props {
 const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
   const [isLearning, setIsLearning] = useState(false);
   const [hasLearned, setHasLearned] = useState(false);
+  const [experienceLevel, setExperienceLevel] = useState('Novice');
   
   const sessionType = result.sessionType || 'school';
   const isHighRisk = result.riskAssessment.isConcern;
   const riskLevel = result.riskAssessment.level;
 
+  useEffect(() => {
+    const loadStats = async () => {
+      try {
+        const stats = await KnowledgeBaseService.getStats();
+        setExperienceLevel(stats.experienceLevel);
+      } catch (error) {
+        console.error("Failed to load stats", error);
+      }
+    };
+    loadStats();
+  }, []);
+
   const handleValidateAndGrow = async () => {
     setIsLearning(true);
     try {
       const insight = await generateMetaInsight(result, answers);
-      KnowledgeBaseService.addInsight({
+      await KnowledgeBaseService.addInsight({
         sessionType: sessionType,
         pattern: insight.pattern,
         recommendation: insight.recommendation,
         timestamp: Date.now()
       });
       setHasLearned(true);
+      
+      // Update experience level after learning
+      const stats = await KnowledgeBaseService.getStats();
+      setExperienceLevel(stats.experienceLevel);
     } catch (e) {
       console.error("Learning failed", e);
     } finally {
@@ -80,7 +97,7 @@ const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
             <span className="text-3xl p-3 bg-white rounded-2xl shadow-sm border border-slate-100">{theme.icon}</span>
             <div>
               <h1 className="text-3xl font-bold text-slate-900">{theme.title}</h1>
-              <p className="text-xs text-slate-400 font-mono tracking-tighter uppercase">Professional Intelligence Level: {KnowledgeBaseService.getStats().experienceLevel}</p>
+              <p className="text-xs text-slate-400 font-mono tracking-tighter uppercase">Professional Intelligence Level: {experienceLevel}</p>
             </div>
           </div>
         </div>

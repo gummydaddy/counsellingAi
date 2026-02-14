@@ -19,11 +19,18 @@ const App: React.FC = () => {
   const [phase1Questions, setPhase1Questions] = useState<Question[]>([]);
   const [counselorNotes, setCounselorNotes] = useState<string | null>(null);
   const [sessionAnswers, setSessionAnswers] = useState<Answer[]>([]);
-  const [aiStats, setAiStats] = useState(KnowledgeBaseService.getStats());
+  
+  // Default state to prevent undefined errors before data loads
+  const [aiStats, setAiStats] = useState({ totalSessionsLearned: 0, experienceLevel: 'Novice' });
 
+  // PRODUCTION UPDATE: Fetch stats asynchronously (mimicking DB call)
   useEffect(() => {
-    setAiStats(KnowledgeBaseService.getStats());
-  }, [step]);
+    const fetchStats = async () => {
+      const stats = await KnowledgeBaseService.getStats();
+      setAiStats(stats);
+    };
+    fetchStats();
+  }, [step]); // Re-fetch when step changes (e.g. after a session ends)
 
   const handleStart = () => {
     setStep(AppStep.SESSION_SELECTION);
