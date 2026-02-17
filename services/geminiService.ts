@@ -110,15 +110,16 @@ const SCHEMAS = {
 
 class AIService {
   private getKeys() {
-    const env = import.meta as any;
+    const env = (import.meta as any).env || {};
+    const processEnv = (window as any).process?.env || {};
     
     return {
-      gemini: env.env?.VITE_GEMINI_API_KEY || '',
-      openai: env.env?.VITE_OPENAI_API_KEY || '',
-      openrouter: env.env?.VITE_OPENROUTER_API_KEY || '',
-      anthropic: env.env?.VITE_ANTHROPIC_API_KEY || '',
-      groq: env.env?.VITE_GROQ_API_KEY || '',
-      generic: env.env?.VITE_API_KEY || ''
+      gemini: env.VITE_GEMINI_API_KEY || processEnv.GEMINI_API_KEY || '',
+      openai: env.VITE_OPENAI_API_KEY || processEnv.OPENAI_API_KEY || '',
+      openrouter: env.VITE_OPENROUTER_API_KEY || processEnv.OPENROUTER_API_KEY || '',
+      anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
+      groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
+      generic: env.VITE_API_KEY || processEnv.API_KEY || ''
     };
   }
 
