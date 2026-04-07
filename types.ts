@@ -85,3 +85,16 @@ export enum AssessmentPhase {
   GENERATING_DEEP_DIVE,
   DEEP_DIVE
 }
+
+export interface CounsellingSession {
+  id: string;
+  userId: string;
+  sessionType: SessionType;
+  title: string;
+  createdAt: string;
+  counselorNotes: string | null;
+  phase1Questions: Question[];
+  mcqAnswers: MCQAnswer[];
+  assessmentAnswers: Answer[];
+  result: AnalysisResult | null;
+}
