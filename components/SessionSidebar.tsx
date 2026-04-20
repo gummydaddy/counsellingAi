@@ -76,37 +76,13 @@ const SessionSidebar: React.FC<Props> = ({
     <>
       {/* Sidebar */}
       <div
-        className={`fixed left-0 top-0 h-full bg-slate-900 text-slate-200 z-40 flex flex-col transition-all duration-300 ease-in-out ${
+        className={`fixed left-0 top-0 h-full bg-slate-900 text-slate-200 z-40 flex flex-col pt-[140px] transition-all duration-300 ease-in-out ${
           isCollapsed ? 'w-0 -translate-x-full' : 'w-72 translate-x-0'
         }`}
         style={{ minWidth: isCollapsed ? 0 : '288px' }}
       >
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-700/50">
-          <span className="font-bold text-sm tracking-wide text-slate-300 uppercase">Sessions</span>
-          <button
-            onClick={onToggle}
-            className="p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors"
-            title="Close sidebar"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-            </svg>
-          </button>
-        </div>
 
-        {/* New Session Button */}
-        <div className="p-3">
-          <button
-            onClick={onNewSession}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-slate-700/50 hover:bg-slate-800 transition-all text-sm font-medium text-slate-300 hover:text-white"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            New Session
-          </button>
-        </div>
+
 
         {/* Session List */}
         <div className="flex-1 overflow-y-auto px-2 pb-4 scrollbar-thin scrollbar-thumb-slate-700 scrollbar-track-transparent">
@@ -179,18 +155,42 @@ const SessionSidebar: React.FC<Props> = ({
         </div>
       </div>
 
-      {/* Toggle button (when collapsed) */}
-      {isCollapsed && (
+      {/* Floating Toggle and New Session */}
+      <div className={`fixed left-4 top-[80px] z-50 flex items-center gap-2 transition-all duration-300 ${!isCollapsed ? 'opacity-100' : ''}`}>
         <button
           onClick={onToggle}
-          className="fixed left-3 top-[72px] z-40 p-2 bg-slate-900 text-slate-300 rounded-lg hover:bg-slate-800 transition-all shadow-lg border border-slate-700/50"
-          title="Open sidebar"
+          className="flex items-center gap-2 px-3 py-2 bg-slate-900 text-slate-300 rounded-lg hover:bg-slate-800 transition-all shadow-lg border border-slate-700/50"
+          title={isCollapsed ? "Open sidebar" : "Close sidebar"}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
+          {isCollapsed ? (
+            <>
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              <span className="text-sm font-medium">Sessions</span>
+            </>
+          ) : (
+            <>
+              <span className="font-bold text-sm tracking-wide text-slate-300 uppercase">Sessions</span>
+              <div className="p-1.5 rounded-lg hover:bg-slate-700/50 transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                </svg>
+              </div>
+            </>
+          )}
         </button>
-      )}
+        <button
+          onClick={onNewSession}
+          className="flex items-center gap-1.5 px-3 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 transition-all shadow-lg border border-brand-500/30 text-sm font-semibold"
+          title="Start New Session"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          New Session
+        </button>
+      </div>
 
       {/* Backdrop for mobile */}
       {!isCollapsed && (
