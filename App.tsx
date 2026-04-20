@@ -23,6 +23,7 @@ const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [sessionType, setSessionType] = useState<SessionType>('school');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -190,12 +191,17 @@ const App: React.FC = () => {
     setStep(AppStep.WELCOME);
   };
 
-  if (!isAuthenticated) {
-    return <AdminComponents />;
-  }
+    if (!isAuthenticated) {
+      return <AdminComponents />;
+    }
 
-  // If viewing a past session, show the detail view
-  if (viewingSession) {
+    // Admin panel takes precedence when explicitly requested
+    if (showAdminPanel) {
+      return <AdminComponents />;
+    }
+
+    // If viewing a past session, show the detail view
+    if (viewingSession) {
     return (
       <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
         <SessionSidebar
@@ -210,17 +216,6 @@ const App: React.FC = () => {
         <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
           <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
             <div className="flex items-center space-x-3">
-              {sidebarCollapsed && (
-                <button
-                  onClick={() => setSidebarCollapsed(false)}
-                  className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-                  title="Open sidebar"
-                >
-                  <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                  </svg>
-                </button>
-              )}
               <div className="flex items-center space-x-2 cursor-pointer" onClick={handleReset}>
                 <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
                 <span className="text-xl font-bold text-slate-800 tracking-tight">Counselling AI</span>
@@ -266,17 +261,6 @@ const App: React.FC = () => {
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
         <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
           <div className="flex items-center space-x-3">
-            {sidebarCollapsed && (
-              <button
-                onClick={() => setSidebarCollapsed(false)}
-                className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-                title="Open sidebar"
-              >
-                <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-                </svg>
-              </button>
-            )}
             <div className="flex items-center space-x-2 cursor-pointer" onClick={handleReset}>
               <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
               <span className="text-xl font-bold text-slate-800 tracking-tight">Counselling AI</span>
@@ -290,14 +274,14 @@ const App: React.FC = () => {
                   <span>AI Experience: {aiStats.experienceLevel}</span>
                   <span className="text-brand-600">{aiStats.totalSessionsLearned} Sessions</span>
                 </div>
-                {currentUser?.role === 'admin' && (
-                  <button
-                    onClick={() => window.location.href = '/components/AdminComponents.tsx'}
-                    className="px-3 py-1 bg-[#D32F2F] text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors"
-                  >
-                    Admin Panel
-                  </button>
-                )}
+                 {currentUser?.role === 'admin' && (
+                   <button
+                     onClick={() => setShowAdminPanel(true)}
+                     className="px-3 py-1 bg-[#D32F2F] text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors"
+                   >
+                     Admin Panel
+                   </button>
+                 )}
                 {step !== AppStep.WELCOME && (
                   <span className="px-3 py-1 bg-slate-100 text-slate-500 text-xs rounded-full font-bold uppercase tracking-wider">
                     {sessionType}

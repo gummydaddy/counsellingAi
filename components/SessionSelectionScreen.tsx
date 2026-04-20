@@ -52,9 +52,7 @@ const SessionSelectionScreen: React.FC<Props> = ({ onSelect }) => {
         <p className="text-lg text-slate-600 max-w-2xl mx-auto">
           Our AI Specialists are trained in different fields. Select the type of session you need today.
         </p>
-        <div className="mt-4 inline-block bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm px-4 py-2 rounded-lg">
-           Disclaimer: This AI tool is for educational purposes only and is not a substitute for professional medical or psychiatric advice.
-        </div>
+
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
