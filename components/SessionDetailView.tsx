@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CounsellingSession, SessionType, Answer, MCQAnswer } from '../types.ts';
+import ChatSession from './ChatSession.tsx';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
@@ -37,7 +38,7 @@ const getSessionTheme = (type: SessionType) => {
   }
 };
 
-type Tab = 'results' | 'questions' | 'answers';
+type Tab = 'results' | 'questions' | 'answers' | 'chat';
 
 const SessionDetailView: React.FC<Props> = ({ session, onBack }) => {
   const [activeTab, setActiveTab] = useState<Tab>('results');
@@ -64,10 +65,11 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack }) => {
     ...session.assessmentAnswers.map(a => ({ type: 'text' as const, ...a })),
   ];
 
-  const tabs: { id: Tab; label: string; count?: number }[] = [
+const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'results', label: 'Results' },
     { id: 'questions', label: 'Questions', count: allQuestions.length },
     { id: 'answers', label: 'Answers', count: allAnswers.length },
+    { id: 'chat', label: 'Chat' },
   ];
 
   return (
@@ -325,6 +327,24 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack }) => {
               <p className="text-lg font-medium">No answers recorded</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Chat Tab */}
+      {activeTab === 'chat' && result && (
+        <div className="animate-fade-in">
+          <ChatSession 
+            result={result} 
+            answers={session.assessmentAnswers} 
+            sessionType={session.sessionType} 
+          />
+        </div>
+      )}
+
+      {activeTab === 'chat' && !result && (
+        <div className="text-center py-16 text-slate-400">
+          <p className="text-lg font-medium">Chat not available</p>
+          <p className="text-sm mt-1">This session was not completed.</p>
         </div>
       )}
     </div>
