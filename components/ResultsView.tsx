@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { AnalysisResult, SessionType, Answer } from '../types.ts';
 import { generateMetaInsight } from '../services/geminiService.ts';
 import { KnowledgeBaseService } from '../services/knowledgeBaseService.ts';
+import ChatSession from './ChatSession.tsx';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
@@ -17,7 +18,7 @@ const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
   const [isLearning, setIsLearning] = useState(false);
   const [hasLearned, setHasLearned] = useState(false);
   const [experienceLevel, setExperienceLevel] = useState('Novice');
-  
+
   const sessionType = result.sessionType || 'school';
   const isHighRisk = result.riskAssessment.isConcern;
   const riskLevel = result.riskAssessment.level;
@@ -45,7 +46,7 @@ const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
         timestamp: Date.now()
       });
       setHasLearned(true);
-      
+
       // Update experience level after learning
       const stats = await KnowledgeBaseService.getStats();
       setExperienceLevel(stats.experienceLevel);
@@ -255,15 +256,20 @@ const ResultsView: React.FC<Props> = ({ result, answers, onReset }) => {
                      </span>
                    ))}
                 </div>
-             </div>
-           </div>
-
-           <button onClick={onReset} className="w-full py-5 rounded-3xl bg-slate-900 text-white font-black uppercase tracking-widest text-xs hover:bg-slate-800 transition-all shadow-xl shadow-slate-200">
-             End Session & Log Report
-           </button>
+              </div>
+            </div>
+          </div>
         </div>
+      
+      {/* Chat Session - Full width, outside grid */}
+      <div className="mt-10 pt-8 border-t border-slate-200">
+        <ChatSession 
+          result={result} 
+          answers={answers} 
+          sessionType={sessionType} 
+        />
       </div>
-    </div>
+    </div >
   );
 };
 
