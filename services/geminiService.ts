@@ -304,23 +304,30 @@ class AIService {
 
   private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
     // Kira AI API - keys start with kira_
-    // Example: kira_39...
-    const model = 'kira-flash';
-    const url = `https://api.kira.ai/v1/models/${model}:generateContent?key=${apiKey}`;
+    // Uses OpenAI-compatible API at https://kiraai.vn/api/v1
+    // Available models: glm-5.3, glm-5.3-flash, qwen3.8-flash, deepseek-v4-flash-vision-exp, deepseek-v4-flash-free
+    const model = 'glm-5.3-flash';
+    const baseUrl = 'https://kiraai.vn/api/v1';
     
-    const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: schema
-      }
+    const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.`;
+
+    const body = {
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" }
     };
 
-    const res = await fetch(url, {
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
     });
 
     if (!res.ok) {
@@ -329,7 +336,7 @@ class AIService {
     }
 
     const data = await res.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const text = data.choices?.[0]?.message?.content;
     try {
       return JSON.parse(cleanJson(text));
     } catch (e) {
