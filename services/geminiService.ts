@@ -4,7 +4,7 @@ import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
 // --- Types & Interfaces ---
 
-export type AIProvider = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'groq';
+export type AIProvider = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'groq' | 'kira';
 
 interface AIConfig {
   apiKey: string;
@@ -119,6 +119,7 @@ class AIService {
       openrouter: env.VITE_OPENROUTER_API_KEY || processEnv.OPENROUTER_API_KEY || '',
       anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
       groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
+      kira: env.VITE_KIRA_API_KEY || processEnv.KIRA_API_KEY || '',
       generic: env.VITE_API_KEY || processEnv.API_KEY || ''
     };
   }
@@ -128,6 +129,7 @@ class AIService {
     if (key.startsWith('sk-ant-')) return 'anthropic';
     if (key.startsWith('gsk_')) return 'groq';
     if (key.startsWith('sk-')) return 'openai';
+    if (key.startsWith('kira_')) return 'kira';
     return 'gemini'; 
   }
 
@@ -139,6 +141,7 @@ class AIService {
     if (keys.openai) return { apiKey: keys.openai, provider: 'openai' };
     if (keys.anthropic) return { apiKey: keys.anthropic, provider: 'anthropic' };
     if (keys.groq) return { apiKey: keys.groq, provider: 'groq' };
+    if (keys.kira) return { apiKey: keys.kira, provider: 'kira' };
 
     const genericKey = keys.generic.trim();
     if (genericKey) {
@@ -175,6 +178,9 @@ class AIService {
           break;
         case 'anthropic':
           result = await this.generateAnthropic(apiKey, prompt, systemPrompt);
+          break;
+        case 'kira':
+          result = await this.generateKira(apiKey, prompt, schema, systemInstruction);
           break;
         default:
           throw new Error(`Provider ${provider} not supported`);
@@ -293,6 +299,41 @@ class AIService {
       return JSON.parse(cleanJson(text));
     } catch (e) {
       throw new Error("Invalid JSON response from Anthropic");
+    }
+  }
+
+  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
+    // Kira AI API - keys start with kira_
+    // Example: kira_39...
+    const model = 'kira-flash';
+    const url = `https://api.kira.ai/v1/models/${model}:generateContent?key=${apiKey}`;
+    
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: { parts: [{ text: systemInstruction }] },
+      generationConfig: {
+        responseMimeType: "application/json",
+        responseSchema: schema
+      }
+    };
+
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || `Kira Error: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    try {
+      return JSON.parse(cleanJson(text));
+    } catch (e) {
+      throw new Error("Invalid JSON response from Kira");
     }
   }
 }
