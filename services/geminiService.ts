@@ -120,6 +120,7 @@ class AIService {
       anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
       groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
       kira: env.VITE_KIRA_API_KEY || processEnv.KIRA_API_KEY || '',
+      kiraModel: env.VITE_KIRA_MODEL || processEnv.KIRA_MODEL || 'glm-5.3-flash',
       generic: env.VITE_API_KEY || processEnv.API_KEY || ''
     };
   }
@@ -305,8 +306,18 @@ class AIService {
   private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
     // Kira AI API - keys start with kira_
     // Uses OpenAI-compatible API at https://kiraai.vn/api/v1
-    // Available models: glm-5.3, glm-5.3-flash, qwen3.8-flash, deepseek-v4-flash-vision-exp, deepseek-v4-flash-free
-    const model = 'glm-5.3-flash';
+    // Available models (set via VITE_KIRA_MODEL):
+    // - glm-5.3-flash (default)
+    // - glm-5.3
+    // - qwen3.8-flash
+    // - deepseek-v4-flash-vision-exp
+    // - deepseek-v4-flash-free
+    // - kira-mini-1.0 (Context 1M)
+    // - kira-2.0 (Context 1M)
+    // - hy3128K (Context 128K)
+    // - mimo-v2.5 (Context 128K)
+    // - minimax-3m-free (Context 1M)
+    const model = this.getKeys().kiraModel;
     const baseUrl = 'https://kiraai.vn/api/v1';
     
     const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.`;
