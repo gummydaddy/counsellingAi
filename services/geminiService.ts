@@ -317,7 +317,12 @@ class AIService {
     // - hy3128K (Context 128K)
     // - mimo-v2.5 (Context 128K)
     // - minimax-3m-free (Context 1M)
-    const model = this.getKeys().kiraModel;
+    let model = this.getKeys().kiraModel;
+    // Safeguard: if model looks like an API key (starts with kira_), use default
+    if (model.startsWith('kira_')) {
+      console.warn('Kira model env var not set correctly, using default: glm-5.3-flash');
+      model = 'glm-5.3-flash';
+    }
     const baseUrl = 'https://kiraai.vn/api/v1';
 
     const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.`;
