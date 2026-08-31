@@ -119,8 +119,8 @@ class AIService {
       openrouter: env.VITE_OPENROUTER_API_KEY || processEnv.OPENROUTER_API_KEY || '',
       anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
       groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
-      kira: env.VITE_KIRA_API_KEY || processEnv.KIRA_API_KEY || 'kira-mini-1.0',
-      //kiraModel: env.VITE_KIRA_MODEL || processEnv.KIRA_MODEL || 'kira-mini-1.0',
+      kira: env.VITE_KIRA_API_KEY || processEnv.KIRA_API_KEY || 'kira-2.0',
+      kiraModel: env.VITE_KIRA_MODEL || processEnv.KIRA_MODEL || 'kira-mini-1.0',
       generic: env.VITE_API_KEY || processEnv.API_KEY || ''
     };
   }
@@ -317,7 +317,7 @@ class AIService {
     // - hy3128K (Context 128K)
     // - mimo-v2.5 (Context 128K)
     // - minimax-3m-free (Context 1M)
-    const model = this.getKeys().kira;
+    const model = this.getKeys().kiraModel;
     const baseUrl = 'https://kiraai.vn/api/v1';
 
     const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.`;
