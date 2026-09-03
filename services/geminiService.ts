@@ -4,7 +4,7 @@ import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
 
 // --- Types & Interfaces ---
 
-export type AIProvider = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'groq';
+export type AIProvider = 'gemini' | 'openrouter' | 'openai' | 'anthropic' | 'groq' | 'kira';
 
 interface AIConfig {
   apiKey: string;
@@ -112,13 +112,15 @@ class AIService {
   private getKeys() {
     const env = (import.meta as any).env || {};
     const processEnv = (window as any).process?.env || {};
-    
+
     return {
       gemini: env.VITE_GEMINI_API_KEY || processEnv.GEMINI_API_KEY || '',
       openai: env.VITE_OPENAI_API_KEY || processEnv.OPENAI_API_KEY || '',
       openrouter: env.VITE_OPENROUTER_API_KEY || processEnv.OPENROUTER_API_KEY || '',
       anthropic: env.VITE_ANTHROPIC_API_KEY || processEnv.ANTHROPIC_API_KEY || '',
       groq: env.VITE_GROQ_API_KEY || processEnv.GROQ_API_KEY || '',
+      kira: env.VITE_KIRA_API_KEY || processEnv.KIRA_API_KEY || 'kira-2.0',
+      kiraModel: env.VITE_KIRA_MODEL || processEnv.KIRA_MODEL || 'kira-mini-1.0',
       generic: env.VITE_API_KEY || processEnv.API_KEY || ''
     };
   }
@@ -128,17 +130,19 @@ class AIService {
     if (key.startsWith('sk-ant-')) return 'anthropic';
     if (key.startsWith('gsk_')) return 'groq';
     if (key.startsWith('sk-')) return 'openai';
-    return 'gemini'; 
+    if (key.startsWith('kira_')) return 'kira';
+    return 'gemini';
   }
 
   getActiveConfig(): AIConfig {
     const keys = this.getKeys();
-    
+
     if (keys.gemini) return { apiKey: keys.gemini, provider: 'gemini' };
     if (keys.openrouter) return { apiKey: keys.openrouter, provider: 'openrouter' };
     if (keys.openai) return { apiKey: keys.openai, provider: 'openai' };
     if (keys.anthropic) return { apiKey: keys.anthropic, provider: 'anthropic' };
     if (keys.groq) return { apiKey: keys.groq, provider: 'groq' };
+    if (keys.kira) return { apiKey: keys.kira, provider: 'kira' };
 
     const genericKey = keys.generic.trim();
     if (genericKey) {
@@ -149,8 +153,8 @@ class AIService {
   }
 
   async generateContent<T>(
-    prompt: string, 
-    schema: any, 
+    prompt: string,
+    schema: any,
     systemInstruction: string,
     retryCount = 0
   ): Promise<T> {
@@ -176,6 +180,9 @@ class AIService {
         case 'anthropic':
           result = await this.generateAnthropic(apiKey, prompt, systemPrompt);
           break;
+        case 'kira':
+          result = await this.generateKira(apiKey, prompt, schema, systemPrompt);
+          break;
         default:
           throw new Error(`Provider ${provider} not supported`);
       }
@@ -183,7 +190,7 @@ class AIService {
     } catch (e: any) {
       console.warn(`${provider} Generation Error (Attempt ${retryCount}):`, e);
       if (retryCount < 2) {
-        await new Promise(r => setTimeout(r, 1000 * (retryCount + 1))); 
+        await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)));
         return this.generateContent(prompt, schema, systemInstruction, retryCount + 1);
       }
       throw new Error(`AI Service Failed after retries: ${e.message}`);
@@ -193,7 +200,7 @@ class AIService {
   private async generateGemini<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
     const model = 'gemini-3-flash-preview';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    
+
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -252,7 +259,7 @@ class AIService {
     if (!res.ok) {
       const err = await res.json();
       if (err.error?.message?.includes("No endpoints") || res.status === 404 || res.status === 502) {
-          throw new Error("MODEL_NOT_FOUND");
+        throw new Error("MODEL_NOT_FOUND");
       }
       throw new Error(err.error?.message || `${model} API Error: ${res.statusText}`);
     }
@@ -295,6 +302,61 @@ class AIService {
       throw new Error("Invalid JSON response from Anthropic");
     }
   }
+
+  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemPrompt: string): Promise<T> {
+    // Kira AI API - keys start with kira_
+    // Uses OpenAI-compatible API at https://kiraai.vn/api/v1
+    // Available models (set via VITE_KIRA_MODEL):
+    // - glm-5.3-flash (default)
+    // - glm-5.3
+    // - qwen3.8-flash
+    // - deepseek-v4-flash-vision-exp
+    // - deepseek-v4-flash-free
+    // - kira-mini-1.0 (Context 1M)
+    // - kira-2.0 (Context 1M)
+    // - hy3128K (Context 128K)
+    // - mimo-v2.5 (Context 128K)
+    // - minimax-3m-free (Context 1M)
+    let model = this.getKeys().kiraModel;
+    // Safeguard: if model looks like an API key (starts with kira_), use default
+    if (model.startsWith('kira_')) {
+      console.warn('Kira model env var not set correctly, using default: kira-mini-1.0');
+      model = 'kira-mini-1.0';
+    }
+    const baseUrl = 'https://kiraai.vn/api/v1';
+
+    const body = {
+      model: model,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.1,
+      response_format: { type: "json_object" }
+    };
+
+    const res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(body)
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || `Kira Error: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+    const text = data.choices?.[0]?.message?.content;
+    try {
+      return JSON.parse(cleanJson(text));
+    } catch (e) {
+      throw new Error("Invalid JSON response from Kira");
+    }
+  }
 }
 
 export const aiService = new AIService();
@@ -311,17 +373,17 @@ const getSpecializedRoleInstructions = (type: SessionType): string => {
 };
 
 export const generatePhase1Questions = async (
-  mcqAnswers: MCQAnswer[] | null, 
+  mcqAnswers: MCQAnswer[] | null,
   sessionType: SessionType,
   counselorNotes: string | null = null
 ): Promise<Question[]> => {
   const role = getSpecializedRoleInstructions(sessionType);
-  
+
   // NOTE: Awaiting database call here (Production Readiness)
   const learnedContext = await KnowledgeBaseService.getLearningContext(sessionType);
-  
-  let contextString = counselorNotes 
-    ? `EXPERT NOTES:\n${counselorNotes}` 
+
+  let contextString = counselorNotes
+    ? `EXPERT NOTES:\n${counselorNotes}`
     : `MCQ DATA:\n${mcqAnswers?.map(a => `${a.questionText}: ${a.selectedOption}`).join("\n")}`;
 
   const prompt = `
@@ -333,12 +395,12 @@ export const generatePhase1Questions = async (
 
   try {
     const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role);
-    const data = ensureArray<{text: string, category: string}>(raw);
-    return data.map((q, idx) => ({ 
-      id: 50 + idx, 
-      text: q.text || "Follow up question...", 
-      category: q.category || "general", 
-      isDynamic: true 
+    const data = ensureArray<{ text: string, category: string }>(raw);
+    return data.map((q, idx) => ({
+      id: 50 + idx,
+      text: q.text || "Follow up question...",
+      category: q.category || "general",
+      isDynamic: true
     }));
   } catch (error) {
     console.error("Phase 1 Generation failed, using fallback:", error);
@@ -357,7 +419,7 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
   const prompt = `Generate ONE rapport-building question. Previous Context: ${formattedQA}`;
 
   try {
-    const raw = await aiService.generateContent<{text: string, category: string}>(prompt, SCHEMAS.rapport, role);
+    const raw = await aiService.generateContent<{ text: string, category: string }>(prompt, SCHEMAS.rapport, role);
     return { id: 75, text: raw?.text || "How are you feeling?", category: "rapport", isDynamic: true };
   } catch (e) {
     return { id: 75, text: "How does this make you feel overall?", category: "rapport", isDynamic: true };
@@ -371,12 +433,12 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
 
   try {
     const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role);
-    const data = ensureArray<{text: string, category: string}>(raw);
-    return data.map((q, idx) => ({ 
-      id: 100 + idx, 
-      text: q.text || "Elaborate further...", 
-      category: q.category || "deep_dive", 
-      isDynamic: true 
+    const data = ensureArray<{ text: string, category: string }>(raw);
+    return data.map((q, idx) => ({
+      id: 100 + idx,
+      text: q.text || "Elaborate further...",
+      category: q.category || "deep_dive",
+      isDynamic: true
     }));
   } catch (error) {
     return FALLBACK_QUESTIONS.map((q, idx) => ({
@@ -397,9 +459,9 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
   return res || {} as AnalysisResult;
 };
 
-export const generateMetaInsight = async (result: AnalysisResult, answers: Answer[]): Promise<{pattern: string, recommendation: string}> => {
+export const generateMetaInsight = async (result: AnalysisResult, answers: Answer[]): Promise<{ pattern: string, recommendation: string }> => {
   const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
   const prompt = `Identify the core behavioral pattern from this ${result.sessionType} session and create a clinical rule. Answers: ${formattedQA}`;
-  const res = await aiService.generateContent<{pattern: string, recommendation: string}>(prompt, SCHEMAS.metaInsight, "You are a Clinical Supervisor analyzing session patterns.");
+  const res = await aiService.generateContent<{ pattern: string, recommendation: string }>(prompt, SCHEMAS.metaInsight, "You are a Clinical Supervisor analyzing session patterns.");
   return res || { pattern: "Undetermined", recommendation: "Standard protocol" };
 };
