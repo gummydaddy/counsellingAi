@@ -181,7 +181,7 @@ class AIService {
           result = await this.generateAnthropic(apiKey, prompt, systemPrompt);
           break;
         case 'kira':
-          result = await this.generateKira(apiKey, prompt, schema, systemInstruction);
+          result = await this.generateKira(apiKey, prompt, schema, systemPrompt);
           break;
         default:
           throw new Error(`Provider ${provider} not supported`);
@@ -303,7 +303,7 @@ class AIService {
     }
   }
 
-  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
+  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemPrompt: string): Promise<T> {
     // Kira AI API - keys start with kira_
     // Uses OpenAI-compatible API at https://kiraai.vn/api/v1
     // Available models (set via VITE_KIRA_MODEL):
@@ -320,12 +320,10 @@ class AIService {
     let model = this.getKeys().kiraModel;
     // Safeguard: if model looks like an API key (starts with kira_), use default
     if (model.startsWith('kira_')) {
-      console.warn('Kira model env var not set correctly, using default: glm-5.3-flash');
-      model = 'glm-5.3-flash';
+      console.warn('Kira model env var not set correctly, using default: kira-mini-1.0');
+      model = 'kira-mini-1.0';
     }
     const baseUrl = 'https://kiraai.vn/api/v1';
-
-    const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.`;
 
     const body = {
       model: model,
