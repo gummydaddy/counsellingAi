@@ -3,119 +3,154 @@
 ## System Overview
 Counselling AI is a full-stack web application that provides AI-powered counselling sessions across multiple domains (school, medical, psychological, career, relationship). The system combines user input with AI analysis to generate personalized insights and recommendations.
 
-## Core Components
+### Backend Architecture: Django Multi-Tenant Platform
 
-### 1. Authentication System (`services/auth.service.ts`)
-- Handles user login/logout functionality
-- Stores user data in localStorage
-- Provides current user information and role (user/admin)
+The application features a comprehensive Django backend implementing multi-tenant architecture:
 
-### 2. Session Management (`services/session.service.ts`)
-- Saves and retrieves counselling sessions from localStorage
-- Manages session lifecycle (creation, deletion, retrieval)
-- Stores all session data including inputs, questions, answers, and analysis results
+#### Core Django Components
 
-### 3. Knowledge Base (`services/knowledgeBaseService.ts`)
-- Learns from past sessions to improve future analyses
-- Provides statistical data and learned context for AI processing
-- Implements asynchronous stats fetching to mimic database calls
+**1. Custom User Model (`identity` app)**
+- UUID-based primary key (no sequential database IDs exposed)
+- Email as primary login identifier
+- Phone number with unique constraint and verification
+- Email and phone verification flags
+- Full name and short name properties
 
-### 4. AI Service (`services/geminiService.ts`)
-- Multi-provider AI abstraction layer supporting Gemini, OpenAI, OpenRouter, Anthropic, and Groq
-- Handles API key detection and provider selection
-- Implements retry logic and error handling for robust AI interactions
-- Uses structured JSON schemas for consistent AI responses
-- Generates specialized prompts based on session type (medical, psychological, etc.)
+**2. Organization System (`organizations` app)**
+- **Organization Model**: First-class tenant with legal name, display name, slug, country, status
+- **Organization Application Workflow**: 
+  - Users submit applications with legal name, display name, organization type
+  - Platform admin reviews and approves/rejects
+  - Only approved organizations appear in selection dropdown
+  - On approval: Organization created, profile created, owner membership assigned, FREE subscription created
+- **Organization Membership**: Explicit through model allowing one user to belong to multiple organizations
+- **Organization Roles**: OWNER, ADMIN, MANAGER, MEMBER, VIEWER with system and custom roles
+- **Organization Profile**: Logo, cover image, description, website, phone, email, address
+- **Tenant Isolation**: Every organization endpoint verifies membership before granting access
 
-### 5. UI Components
-- **App.tsx**: Main application controller managing state and navigation
-- **SessionSidebar.tsx**: Persistent sidebar showing session history and controls
-- **WelcomeScreen.tsx**: Initial landing page
-- **SessionSelectionScreen.tsx**: Session type selection interface
-- **CounselorNotesLayer.tsx**: Optional expert notes input
-- **MCQPhase.tsx**: Multiple-choice questionnaire phase
-- **Assessment.tsx**: Dynamic question-answer assessment phase
-- **ResultsView.tsx**: Final analysis and recommendations display
-- **SessionDetailView.tsx**: Historical session viewing interface
-- **AdminComponents.tsx**: Administrative interface (when enabled)
+**3. Subscription System (`subscriptions` app)**
+- **Subscription Plans**: FREE, BASIC, PRO, BUSINESS, ENTERPRISE (database-driven, not hard-coded)
+  - Each plan has: monthly/yearly price, max members, max storage MB, max projects
+  - Features: api_access, priority_support booleans
+- **Subscription Lifecycle**: triling → active → past_due → cancelled → expired
+- **Feature Enforcement**: Centralized subscription service checks member limits, storage limits, project limits
+- **Payment Abstraction**: Base PaymentProvider class with provider-specific adapters
+- **Subscription Events**: Audit log for all status changes
+
+**4. Audit System (`audit` app)**
+- **AuditEvent Model**: Logs all security-sensitive events
+  - Actor (user), organization, event_type, target_type, target_id
+  - IP address, metadata (JSON field)
+  - Created timestamp
+- **Logged Events**: USER_CREATED, USER_LOGIN, USER_LOGIN_FAILED, PASSWORD_CHANGED
+- ORGANIZATION_APPLICATION_CREATED, ORGANIZATION_APPROVED, ORGANIZATION_REJECTED
+- MEMBER_INVITED, MEMBER_JOINED, MEMBER_REMOVED, ROLE_CHANGED
+- SUBSCRIPTION_CREATED, SUBSCRIPTION_CHANGED, SUBSCRIPTION_CANCELLED
+
+**5. Common Utilities (`common` app)**
+- Status choices constants (organization, membership, subscription)
+- Permission codenames (organization.view, member.invite, subscription.manage, etc.)
+- Helper functions for generating choice lists
+
+#### API Endpoints
+
+**Authentication**
+- `POST /api/auth/token/` - JWT login with email/password
+- `POST /api/auth/token/refresh/` - Refresh JWT access token
+- `POST /api/auth/register/` - Register new user
+
+**Organizations**
+- `GET /api/organizations/available/` - List approved organizations for selection (never shows pending/rejected/suspended/archived)
+- `POST /api/organizations/applications/` - Create organization application (pending status)
+- `POST /api/organizations/{id}/join/` - Join approved organization (backend verifies authorization)
+- `GET /api/organizations/{id}/members/` - List organization members (admin only)
+- `POST /api/organizations/{id}/members/invite/` - Invite user to organization
+- `PATCH /api/organizations/{id}/members/{member_id}/` - Update member role
+- `DELETE /api/organizations/{id}/members/{member_id}/` - Remove member
+
+**Subscriptions**
+- `GET /api/subscription-plans/` - List available subscription plans
+- `GET /api/organizations/{id}/subscription/` - Get organization subscription
+- `POST /api/organizations/{id}/subscription/change/` - Upgrade/downgrade subscription plan
+- `POST /api/organizations/{id}/subscription/cancel/` - Cancel subscription
+
+**Users**
+- `GET /api/users/me/` - Get current user profile
+- `PATCH /api/users/me/` - Update user profile
+- `GET /api/users/me/addresses/` - List user addresses
+- `POST /api/users/me/addresses/` - Create address
+- `PATCH /api/users/me/addresses/{id}/` - Update address
+- `DELETE /api/users/me/addresses/{id}/` - Delete address
+
+#### Permission Classes (DRF)
+- `IsOrganizationMember` - Check if user is active member of organization
+- `IsOrganizationAdmin` - Check if user is admin or owner
+- `IsOrganizationOwner` - Check if user is organization owner
+- `CanManageMembers` - Check if admin can manage members
+- `CanManageSubscription` - Check if admin can manage subscription
+
+#### Key Workflows
+
+**1. User Registration & Login**
+```text
+User → Register (email/password) → Email verified → Login → JWT token → API access
+```
+
+**2. Organization Membership**
+```text
+User → Select approved organization from dropdown → 
+Backend verifies: organization exists, status=approved, user authorized → 
+Create OrganizationMembership → Assign default role
+```
+
+**3. Organization Approval (Admin)**
+```text
+Admin → Review pending application → Approve → 
+Organization created → Profile created → Owner membership created → 
+FREE subscription created → Application status → approved
+```
+
+**4. Subscription Management**
+```text
+Organization → Check plan limits → Upgrade/downgrade → 
+Subscription status changes → Audit event logged → 
+Feature limits enforced (members, storage, projects)
+```
 
 ## Complete System Flow
 
-### Phase 1: Initialization & Authentication
-1. Application loads and checks authentication status via `authService.getCurrentUser()`
-2. If not authenticated, shows AdminComponents (login interface)
-3. If authenticated, loads user sessions and proceeds to welcome screen
+### Phase 1: Authentication & Onboarding
+1. Application loads and checks authentication status
+2. If not authenticated, shows login interface
+3. If authenticated, user can browse approved organizations
+4. User selects organization → backend verifies authorization
+5. Organization membership created with default role
 
-### Phase 2: Session Initiation
-1. User clicks "Start" on WelcomeScreen → navigates to SessionSelectionScreen
-2. User selects session type (school/medical/psychological/career/relationship)
-3. System transitions to either:
-   - **Notes Prompt**: If user chooses to provide counselor notes
-   - **MCQ Phase**: If user skips notes and proceeds directly to assessment
+### Phase 2: Session Management
+1. User creates/counselling sessions
+2. Sessions stored with type (school/medical/psychological/career/relationship)
+3. AI analysis generated based on session type
+4. Results presented to user
 
-### Phase 3: Context Gathering
-**Option A: Counselor Notes Path**
-1. User inputs optional counselor notes in CounselorNotesLayer
-2. System stores notes and proceeds to AI question generation
+### Phase 3: Organization & Subscription Management
+1. Admin reviews organization applications
+2. Approved organizations receive FREE subscription
+3. Admins can upgrade/downgrade subscription plans
+4. Feature limits enforced based on plan (members, storage, projects)
 
-**Option B: MCQ Path**
-1. User completes standardized multiple-choice questionnaire (MCQPhase)
-2. System stores MCQ answers and proceeds to AI question generation
-
-### Phase 4: AI-Powered Question Generation
-1. System calls `generatePhase1Questions()` with either:
-   - Counselor notes OR
-   - MCQ answers
-2. AI service:
-   - Retrieves learned context from KnowledgeBaseService for the session type
-   - Constructs specialized prompt based on session type (e.g., "Senior MBBS, MD Physician" for medical)
-   - Generates 5 tailored foundation questions using structured prompting
-   - Falls back to predefined questions if AI service fails
-
-### Phase 5: Dynamic Assessment
-1. User answers the 5 AI-generated questions in Assessment component
-2. System collects responses and proceeds to analysis phase
-
-### Phase 6: Analysis & Insight Generation
-1. System calls `analyzeStudentAnswers()` with user responses
-2. AI service:
-   - Applies session-type-specific expert role instructions
-   - Performs comprehensive analysis producing:
-     - Archetype identification with description
-     - Risk assessment (level, flags, concern status, detailed analysis)
-     - Six personality trait scores (empathy, logic, integrity, ambition, resilience, social calibration)
-     - Career path suggestions with strategic fit explanations
-     - Personalized counseling advice
-     - Specialized fields based on session type (diagnosis, precautions, medicines, root causes, interpersonal strategy)
-3. System saves complete session to storage via sessionService
-
-### Phase 7: Results Presentation
-1. User views comprehensive ResultsView showing:
-   - Personalized archetype and description
-   - Risk assessment visualization
-   - Trait analysis radar chart
-   - Career recommendations
-   - Counseling advice
-   - Session-type-specific insights
-2. Options to reset or start new session
-
-### Phase 8: Session Management & Learning
-1. All sessions stored in sidebar for historical review
-2. Knowledge base continuously learns from completed sessions
-3. AI stats update to reflect growing experience level
-4 - Admin panel provides system overview (when enabled)
+### Phase 4: AI-Powered Analysis
+1. User completes counselling assessment
+2. AI service generates personalized insights
+3. Results stored with archetype, risk assessment, trait scores
+4. Session history maintained for progress tracking
 
 ## Technical Implementation Details
 
 ### State Management
-- React hooks (useState, useEffect, useCallback) manage application state
-- Key state variables:
-  - Authentication status and user data
-  - Current application step/wizard state
-  - Session type selection
-  - AI-generated questions and user answers
-  - Analysis results and error states
-  - Session history and sidebar UI state
+- Django ORM for persistent state
+- JWT tokens for authentication state
+- Session framework for user sessions
+- Audit events for security tracking
 
 ### AI Integration
 - Abstracted AIService class supports multiple providers
@@ -126,10 +161,10 @@ Counselling AI is a full-stack web application that provides AI-powered counsell
 - Specialized role prompting for domain-specific expertise
 
 ### Data Persistence
-- All data stored in browser localStorage
-- SessionService encapsulates storage logic
-- Automatic session loading on user authentication
-- Delete functionality for session management
+- PostgreSQL (production) or SQLite (development) as authoritative source
+- Redis for rate limiting and temporary state
+- Audit events logged to database
+- Session data managed through Django session framework
 
 ### UI/UX Features
 - Responsive design with collapsible sidebar
@@ -140,11 +175,66 @@ Counselling AI is a full-stack web application that provides AI-powered counsell
 - Smooth transitions between application states
 
 ## Production Considerations
-- Environment-based configuration for API keys
-- Fallback mechanisms for AI service failures
-- Loading states improve perceived performance
-- Error boundaries prevent application crashes
-- LocalStorage persistence enables offline usage
-- Modular component architecture facilitates maintenance
 
-This system provides a sophisticated AI-powered counselling experience that adapts to user inputs while maintaining clinical rigor through specialized prompting and structured analysis frameworks.
+### Security
+- Rate-limiting on authentication endpoints
+- Password reset with generic "if account exists" messages
+- Never expose whether email exists through responses
+- Tenant isolation enforced at server-side
+- Never trust client-provided organization IDs
+
+### Scalability
+- PostgreSQL as authoritative source
+- Redis for caching and rate limiting
+- Database-constrained integrity (UNIQUE on email/phone, slug, etc.)
+- Services layer separates business logic from views
+
+### Extensibility
+- SSO/SAML/OIDC support planned
+- Multiple billing providers (Stripe, Razorpay, etc.)
+- Additional session types can be added
+- New role permissions can be created
+- Subscription features can be extended
+
+## Development Commands
+
+```bash
+# Migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+
+# Seed default data (plans and roles)
+python manage.py seed_identity_system
+
+# Run development server
+python manage.py runserver
+
+# API documentation
+# (drf-spectacular or similar)
+```
+
+## Design Rules Compliance
+
+The implementation strictly follows the 50 design rules including:
+- One user = one global identity (RULE 1)
+- User may belong to multiple organizations (RULE 2)
+- Organization is a tenant (RULE 3)
+- Organization approval mandatory (RULE 4)
+- Only approved organizations selectable (RULE 5)
+- Selection doesn't grant automatic authorization (RULE 6)
+- Membership determines organization belonging (RULE 7)
+- Roles determine member capabilities (RULE 8)
+- Permissions determine specific actions (RULE 9)
+- Subscription determines feature limits (RULE 10)
+- UUIDs identify but don't replace authorization (RULE 11)
+- Precise addresses private by default (RULE 12)
+- Billing providers abstracted (RULE 13)
+- Sensitive operations create audit events (RULE 14)
+- Tenant isolation server-side (RULE 15)
+- Business logic in services (RULE 16)
+- Database constraints protect integrity (RULE 17)
+- Never trust client-supplied IDs (RULE 18)
+- Never expose sensitive serializer fields (RULE 19)
+- All security endpoints need explicit permissions (RULE 20)

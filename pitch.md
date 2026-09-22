@@ -11,6 +11,43 @@ Today's counselling and guidance services face critical challenges:
 ## Our Solution
 Counselling AI delivers personalized, expert-level guidance anytime, anywhere through our innovative AI-powered platform that combines clinical expertise with cutting-edge artificial intelligence.
 
+## Technical Architecture
+
+### Frontend (React + Vite)
+- Modern React 19 interface with Vite build tooling
+- AI-powered counselling session management
+- Multi-domain support (academic, medical, psychological, career, relationship)
+- Session history and results presentation
+
+### Backend (Django Multi-Tenant)
+A robust Django implementation providing the identity and organization foundation:
+
+#### Custom User Model
+- UUID-based primary key (no sequential IDs exposed)
+- Email as primary login identifier
+- Phone number validation and verification
+- Email and phone verification flags
+
+#### Organization System
+- **Organization Application Workflow**: Users submit applications → Admin review → Approved organizations created
+- **Organization Membership**: Users can belong to multiple organizations via explicit through model
+- **Role-Based Permissions**: OWNER, ADMIN, MANAGER, MEMBER, VIEWER roles with fine-grained checks
+- **Organization Profile**: Logo, description, website, contact information
+- **Tenant Isolation**: Every organization endpoint enforces membership verification
+
+#### Subscription & Billing
+- **Database-Driven Plans**: FREE, BASIC, PRO, BUSINESS, ENTERPRISE (not hard-coded)
+- **Subscription Lifecycle**: Trialing → Active → Past Due → Cancelled → Expired
+- **Feature Limits**: Member limits, storage limits, project limits per plan
+- **Payment Abstraction**: Abstract payment providers (Stripe, Razorpay, etc.)
+
+#### Authentication & Security
+- **JWT Authentication**: Minimal claims, organization context resolved server-side
+- **Session Management**: Track and revoke user sessions
+- **Audit Logging**: All security events logged (login, organization changes, subscription updates)
+- **Permission Classes**: Reusable DRF permission classes for organization context
+- **Tenant Isolation**: UUIDs identify objects but never replace authorization
+
 ## What We Provide
 
 ### Personalized Expert Analysis
@@ -81,3 +118,17 @@ The global digital mental health market is projected to reach $45.7 billion by 2
 To become the world's most trusted AI counsellor - providing expert-level guidance that empowers everyone to understand themselves better, make informed decisions, and live more fulfilling lives.
 
 Counselling AI isn't just another app - it's a paradigm shift in how people access personalized guidance and support.
+
+## Backend Infrastructure
+The platform is built on a production-ready Django multi-tenant architecture featuring:
+- Custom user model with UUID-based identities
+- Organization approval workflow with admin review
+- Multi-organization membership support
+- Role-based access control
+- Database-driven subscription plans
+- JWT authentication with minimal claims
+- Audit logging for all security events
+- Tenant isolation enforcement
+- Abstracted payment provider architecture
+
+This backend infrastructure ensures scalability, security, and extensibility for the AI counselling platform.
