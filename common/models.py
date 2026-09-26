@@ -157,3 +157,56 @@ class Address(models.Model):
 
     def __str__(self):
         return f"{self.address_line_1}, {self.city}, {self.country}"
+
+
+class ClinicalInsight(models.Model):
+    """Clinical insights learned from sessions - with pgvector embeddings for semantic search."""
+    
+    SESSION_TYPES = [
+        ('school', 'School'),
+        ('medical', 'Medical'),
+        ('psychological', 'Psychological'),
+        ('career', 'Career'),
+        ('relationship', 'Relationship'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    session_type = models.CharField(max_length=20, choices=SESSION_TYPES, db_index=True)
+    pattern = models.TextField()
+    recommendation = models.TextField()
+    
+    # pgvector embedding for semantic similarity search
+    # 1536 dimensions for OpenAI ada-002, 768 for others
+    embedding = models.BinaryField(null=True, blank=True)  # Store as raw bytes for pgvector
+    
+    # Metadata
+    confidence_score = models.FloatField(default=0.0)
+    usage_count = models.IntegerField(default=0)
+    
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = "Clinical Insight"
+        verbose_name_plural = "Clinical Insights"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['session_type', '-created_at']),
+            models.Index(fields=['confidence_score']),
+        ]
+    
+    def __str__(self):
+        return f"[{self.session_type}] {self.pattern[:50]}..."
+    
+    def set_embedding(self, vector: list[float]):
+        """Store embedding as binary for pgvector."""
+        import struct
+        self.embedding = struct.pack(f'{len(vector)}f', *vector)
+    
+    def get_embedding(self) -> list[float]:
+        """Retrieve embedding as float list."""
+        if not self.embedding:
+            return []
+        import struct
+        return list(struct.unpack(f'{len(self.embedding)//4}f', self.embedding))
