@@ -8,7 +8,10 @@
  */
 
 const STORAGE_KEY = 'mindpath_global_knowledge';
-const API_BASE = '/api/common';  // Django backend API prefix
+// API base URL - configurable via VITE_API_BASE_URL env var
+// Development: '/api/common' (proxied to localhost:8000)
+// Production (Vercel): 'https://your-backend.onrender.com/api/common'
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/common';
 
 export interface ClinicalInsight {
   id?: string;
