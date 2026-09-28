@@ -256,3 +256,12 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+CSRF_TRUSTED_ORIGINS = [
+    #os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(","),
+    "http://localhost:8000",
+    "*"
+    ]
+
+ALLOWED_HOSTS = ["*"]
+
