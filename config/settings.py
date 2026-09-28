@@ -100,7 +100,7 @@ DATABASES = {
 # PostgreSQL (Production - uncomment and configure when ready)
 # DATABASES = {
 #     'default': {
-#         'ENGINE': 'django.db.backends.postgresql',
+         #"ENGINE": "django.db.backends.postgresql_psycopg2",
 #         'NAME': os.environ.get('DB_NAME', 'mindpath'),
 #         'USER': os.environ.get('DB_USER', 'postgres'),
 #         'PASSWORD': os.environ.get('DB_PASSWORD', ''),

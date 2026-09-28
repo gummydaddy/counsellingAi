@@ -48,8 +48,21 @@ install_deps() {
 
 # Function to check database connection
 check_db() {
-    echo -e "${BLUE}🔌${NC} Checking database connection..."
-    "${PYTHON}" -c "
+    # Detect database engine from Django settings
+    DB_ENGINE=$("${PYTHON}" -c "
+import os
+import sys
+sys.path.insert(0, '${PROJECT_DIR}')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+from django.conf import settings
+print(settings.DATABASES['default']['ENGINE'])
+" 2>/dev/null || echo "django.db.backends.sqlite3")
+    
+    if [[ "$DB_ENGINE" == *"postgresql"* ]]; then
+        echo -e "${BLUE}🔌${NC} Checking PostgreSQL connection..."
+        "${PYTHON}" -c "
 import os
 import psycopg2
 try:
@@ -61,11 +74,14 @@ try:
         port=os.getenv('DB_PORT', '5432')
     )
     conn.close()
-    print('Database connection successful')
+    print('PostgreSQL connection successful')
 except Exception as e:
-    print(f'Database connection failed: {e}')
+    print(f'PostgreSQL connection failed: {e}')
     exit(1)
 "
+    else
+        echo -e "${GREEN}✓${NC} Using SQLite (no connection check needed)"
+    fi
 }
 
 # Function to run migrations
@@ -77,30 +93,60 @@ run_migrations() {
 
 # Function to setup PostgreSQL indexes
 setup_indexes() {
-    echo -e "${BLUE}📊${NC} Setting up PostgreSQL indexes (pgvector HNSW + pg_trgm GIN)..."
-    "${PYTHON}" "${MANAGE_PY}" setup_pg_indexes || true
-    echo -e "${GREEN}✓${NC} Indexes setup complete"
+    DB_ENGINE=$("${PYTHON}" -c "
+import os
+import sys
+sys.path.insert(0, '${PROJECT_DIR}')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+from django.conf import settings
+print(settings.DATABASES['default']['ENGINE'])
+" 2>/dev/null || echo "django.db.backends.sqlite3")
+    
+    if [[ "$DB_ENGINE" == *"postgresql"* ]]; then
+        echo -e "${BLUE}📊${NC} Setting up PostgreSQL indexes (pgvector HNSW + pg_trgm GIN)..."
+        "${PYTHON}" "${MANAGE_PY}" setup_pg_indexes || true
+        echo -e "${GREEN}✓${NC} Indexes setup complete"
+    else
+        echo -e "${YELLOW}⚠${NC} Skipping pgvector/pg_trgm indexes (SQLite doesn't support them)"
+    fi
 }
 
 # Function to setup pg_cron jobs
 setup_cron() {
-    echo -e "${BLUE}⏰${NC} Setting up pg_cron scheduled jobs..."
+    DB_ENGINE=$("${PYTHON}" -c "
+import os
+import sys
+sys.path.insert(0, '${PROJECT_DIR}')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+from django.conf import settings
+print(settings.DATABASES['default']['ENGINE'])
+" 2>/dev/null || echo "django.db.backends.sqlite3")
     
-    # Example: Cleanup old insights weekly
-    "${PYTHON}" "${MANAGE_PY}" manage_pg_cron schedule \
-        --job-name "cleanup_old_insights" \
-        --schedule "0 3 * * 0" \
-        --command "DELETE FROM common_clinicalinsight WHERE created_at < NOW() - INTERVAL '90 days';" \
-        || true
-    
-    # Example: Update insight stats daily
-    "${PYTHON}" "${MANAGE_PY}" manage_pg_cron schedule \
-        --job-name "update_insight_stats" \
-        --schedule "0 4 * * *" \
-        --command "UPDATE common_clinicalinsight SET usage_count = usage_count + 0 WHERE true;" \
-        || true
-    
-    echo -e "${GREEN}✓${NC} Cron jobs configured"
+    if [[ "$DB_ENGINE" == *"postgresql"* ]]; then
+        echo -e "${BLUE}⏰${NC} Setting up pg_cron scheduled jobs..."
+        
+        # Example: Cleanup old insights weekly
+        "${PYTHON}" "${MANAGE_PY}" manage_pg_cron schedule \
+            --job-name "cleanup_old_insights" \
+            --schedule "0 3 * * 0" \
+            --command "DELETE FROM common_clinicalinsight WHERE created_at < NOW() - INTERVAL '90 days';" \
+            || true
+        
+        # Example: Update insight stats daily
+        "${PYTHON}" "${MANAGE_PY}" manage_pg_cron schedule \
+            --job-name "update_insight_stats" \
+            --schedule "0 4 * * *" \
+            --command "UPDATE common_clinicalinsight SET usage_count = usage_count + 0 WHERE true;" \
+            || true
+        
+        echo -e "${GREEN}✓${NC} Cron jobs configured"
+    else
+        echo -e "${YELLOW}⚠${NC} Skipping pg_cron (SQLite doesn't support it)"
+    fi
 }
 
 # Function to collect static files
