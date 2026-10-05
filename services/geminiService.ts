@@ -41,6 +41,27 @@ const ensureArray = <T>(data: any): T[] => {
 
 // --- Schema Definitions ---
 
+const COMPACT_SCHEMAS = {
+  questions: `[{ text: string, category: string }]`,
+  rapport: `{ text: string, category: string }`,
+  metaInsight: `{ pattern: string, recommendation: string }`,
+  analysis: `{
+    archetype: string,
+    archetypeDescription: string,
+    riskAssessment: { level: "low|medium|high", flags: string[], isConcern: boolean, detailedAnalysis: string },
+    traits: { empathy: 0-100, logic: 0-100, integrity: 0-100, ambition: 0-100, resilience: 0-100, social_calibration: 0-100 },
+    careerPathSuggestions: [{ title: string, description: string, strategicFit: string }],
+    counselingAdvice: string,
+    professionalDiagnosis: string,
+    suggestedActionPlan: string[],
+    primaryPrecautions: string[],
+    suggestedMedicines: string[],
+    rootCauses: string[],
+    interpersonalStrategy: string
+  }`
+};
+
+// Legacy schemas for Gemini native responseSchema (kept for compatibility)
 const SCHEMAS = {
   questions: {
     type: "ARRAY",
@@ -109,6 +130,9 @@ const SCHEMAS = {
 // --- Service Implementation ---
 
 class AIService {
+  private systemPromptCache = new Map<string, string>();
+  private readonly MAX_CONTEXT_TOKENS = 1500;
+
   private getKeys() {
     const env = (import.meta as any).env || {};
     const processEnv = (window as any).process?.env || {};
@@ -156,11 +180,34 @@ class AIService {
     prompt: string,
     schema: any,
     systemInstruction: string,
-    retryCount = 0
+    retryCount = 0,
+    schemaKey?: keyof typeof COMPACT_SCHEMAS
   ): Promise<T> {
     const { apiKey, provider } = this.getActiveConfig();
-    const jsonStructure = JSON.stringify(schema, null, 2);
-    const systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.\nTarget JSON Schema:\n${jsonStructure}`;
+    
+    // Use compact schema for non-Gemini providers (Gemini uses native responseSchema)
+    const useCompactSchema = provider !== 'gemini';
+    const compactSchema = schemaKey && COMPACT_SCHEMAS[schemaKey];
+    const jsonStructure = useCompactSchema && compactSchema 
+      ? compactSchema 
+      : JSON.stringify(schema, null, 2);
+
+    // Max tokens per task type to limit output
+    const maxTokensMap: Record<string, number> = {
+      'questions': 800,
+      'rapport': 300,
+      'metaInsight': 500,
+      'analysis': 3000
+    };
+    const maxTokens = schemaKey ? maxTokensMap[schemaKey] : 2000;
+
+    // Cache system prompt per session type + schema
+    const cacheKey = `${systemInstruction.slice(0, 50)}:${schemaKey || 'unknown'}`;
+    let systemPrompt = this.systemPromptCache.get(cacheKey);
+    if (!systemPrompt) {
+      systemPrompt = `${systemInstruction}\n\nIMPORTANT: You must output ONLY valid JSON.\nTarget JSON Schema:\n${jsonStructure}`;
+      this.systemPromptCache.set(cacheKey, systemPrompt);
+    }
 
     try {
       let result: T;
@@ -169,19 +216,19 @@ class AIService {
           result = await this.generateGemini(apiKey, prompt, schema, systemInstruction);
           break;
         case 'openrouter':
-          result = await this.generateOpenCompatible(apiKey, 'https://openrouter.ai/api/v1', 'google/gemini-flash-1.5', prompt, systemPrompt);
+          result = await this.generateOpenCompatible(apiKey, 'https://openrouter.ai/api/v1', 'google/gemini-flash-1.5', prompt, systemPrompt, true, maxTokens);
           break;
         case 'openai':
-          result = await this.generateOpenCompatible(apiKey, 'https://api.openai.com/v1', 'gpt-4o', prompt, systemPrompt, true);
+          result = await this.generateOpenCompatible(apiKey, 'https://api.openai.com/v1', 'gpt-4o', prompt, systemPrompt, true, maxTokens);
           break;
         case 'groq':
-          result = await this.generateOpenCompatible(apiKey, 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile', prompt, systemPrompt, true);
+          result = await this.generateOpenCompatible(apiKey, 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile', prompt, systemPrompt, true, maxTokens);
           break;
         case 'anthropic':
-          result = await this.generateAnthropic(apiKey, prompt, systemPrompt);
+          result = await this.generateAnthropic(apiKey, prompt, systemPrompt, maxTokens);
           break;
         case 'kira':
-          result = await this.generateKira(apiKey, prompt, schema, systemPrompt);
+          result = await this.generateKira(apiKey, prompt, schema, systemPrompt, maxTokens);
           break;
         default:
           throw new Error(`Provider ${provider} not supported`);
@@ -191,10 +238,47 @@ class AIService {
       console.warn(`${provider} Generation Error (Attempt ${retryCount}):`, e);
       if (retryCount < 2) {
         await new Promise(r => setTimeout(r, 1000 * (retryCount + 1)));
-        return this.generateContent(prompt, schema, systemInstruction, retryCount + 1);
+        return this.generateContent(prompt, schema, systemInstruction, retryCount + 1, schemaKey);
       }
       throw new Error(`AI Service Failed after retries: ${e.message}`);
     }
+  }
+
+  // Summarize QA history to fit within token budget
+  // Summarize QA history to fit within token budget
+  public summarizeQA(answers: Answer[]): string {
+    const full = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+    const estTokens = Math.ceil(full.length / 4); // rough estimate
+    
+    if (estTokens <= this.MAX_CONTEXT_TOKENS) return full;
+    
+    // Keep first 2 and last 3, summarize middle
+    const keepFirst = 2;
+    const keepLast = 3;
+    const middle = answers.slice(keepFirst, -keepLast);
+    
+    let result = answers.slice(0, keepFirst).map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+    
+    if (middle.length > 0) {
+      const themes = this.extractThemes(middle);
+      result += `\n[${middle.length} responses summarized: ${themes}]\n\n`;
+    }
+    
+    result += answers.slice(-keepLast).map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+    return result;
+  }
+
+  private extractThemes(answers: Answer[]): string {
+    // Simple theme extraction from question text keywords
+    const texts = answers.map(a => a.questionText.toLowerCase()).join(" ");
+    const themes: string[] = [];
+    if (texts.includes("feel") || texts.includes("emotion")) themes.push("emotional");
+    if (texts.includes("goal") || texts.includes("want") || texts.includes("hope")) themes.push("goals");
+    if (texts.includes("challenge") || texts.includes("problem") || texts.includes("difficult")) themes.push("challenges");
+    if (texts.includes("relationship") || texts.includes("partner") || texts.includes("friend")) themes.push("relationships");
+    if (texts.includes("career") || texts.includes("job") || texts.includes("work")) themes.push("career");
+    if (texts.includes("health") || texts.includes("medical") || texts.includes("symptom")) themes.push("health");
+    return themes.length > 0 ? themes.join(", ") : "various topics";
   }
 
   private async generateGemini<T>(apiKey: string, prompt: string, schema: any, systemInstruction: string): Promise<T> {
@@ -230,14 +314,15 @@ class AIService {
     }
   }
 
-  private async generateOpenCompatible<T>(apiKey: string, baseUrl: string, model: string, prompt: string, systemPrompt: string, supportsJsonMode = false): Promise<T> {
+  private async generateOpenCompatible<T>(apiKey: string, baseUrl: string, model: string, prompt: string, systemPrompt: string, supportsJsonMode = false, maxTokens = 2000): Promise<T> {
     const body: any = {
       model: model,
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.1
+      temperature: 0.1,
+      max_tokens: maxTokens
     };
     if (supportsJsonMode) body.response_format = { type: "json_object" };
 
@@ -273,7 +358,7 @@ class AIService {
     }
   }
 
-  private async generateAnthropic<T>(apiKey: string, prompt: string, systemPrompt: string): Promise<T> {
+  private async generateAnthropic<T>(apiKey: string, prompt: string, systemPrompt: string, maxTokens = 4000): Promise<T> {
     const url = 'https://api.anthropic.com/v1/messages';
     const res = await fetch(url, {
       method: 'POST',
@@ -285,7 +370,7 @@ class AIService {
       },
       body: JSON.stringify({
         model: 'claude-3-5-sonnet-20241022',
-        max_tokens: 4000,
+        max_tokens: maxTokens,
         system: systemPrompt,
         messages: [{ role: 'user', content: prompt }]
       })
@@ -303,7 +388,7 @@ class AIService {
     }
   }
 
-  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemPrompt: string): Promise<T> {
+  private async generateKira<T>(apiKey: string, prompt: string, schema: any, systemPrompt: string, maxTokens = 2000): Promise<T> {
     // Kira AI API - keys start with kira_
     // Uses OpenAI-compatible API at https://kiraai.vn/api/v1
     // Available models (set via VITE_KIRA_MODEL):
@@ -332,6 +417,7 @@ class AIService {
         { role: 'user', content: prompt }
       ],
       temperature: 0.1,
+      max_tokens: maxTokens,
       response_format: { type: "json_object" }
     };
 
@@ -394,7 +480,7 @@ export const generatePhase1Questions = async (
   `;
 
   try {
-    const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role);
+    const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role, 0, 'questions');
     const data = ensureArray<{ text: string, category: string }>(raw);
     return data.map((q, idx) => ({
       id: 50 + idx,
@@ -415,11 +501,11 @@ export const generatePhase1Questions = async (
 
 export const generateRapportQuestion = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question> => {
   const role = getSpecializedRoleInstructions(sessionType);
-  const formattedQA = previousAnswers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+  const formattedQA = aiService.summarizeQA(previousAnswers);
   const prompt = `Generate ONE rapport-building question. Previous Context: ${formattedQA}`;
 
   try {
-    const raw = await aiService.generateContent<{ text: string, category: string }>(prompt, SCHEMAS.rapport, role);
+    const raw = await aiService.generateContent<{ text: string, category: string }>(prompt, SCHEMAS.rapport, role, 0, 'rapport');
     return { id: 75, text: raw?.text || "How are you feeling?", category: "rapport", isDynamic: true };
   } catch (e) {
     return { id: 75, text: "How does this make you feel overall?", category: "rapport", isDynamic: true };
@@ -428,11 +514,11 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
 
 export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question[]> => {
   const role = getSpecializedRoleInstructions(sessionType);
-  const formattedQA = previousAnswers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+  const formattedQA = aiService.summarizeQA(previousAnswers);
   const prompt = `Generate 5 "Deep Dive" questions based on these answers. Context: ${formattedQA}`;
 
   try {
-    const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role);
+    const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role, 0, 'questions');
     const data = ensureArray<{ text: string, category: string }>(raw);
     return data.map((q, idx) => ({
       id: 100 + idx,
@@ -452,16 +538,16 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
 
 export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType): Promise<AnalysisResult> => {
   const role = getSpecializedRoleInstructions(sessionType);
-  const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+  const formattedQA = aiService.summarizeQA(answers);
   const prompt = `Perform a complete professional analysis. User Answers: ${formattedQA}`;
-  const res = await aiService.generateContent<AnalysisResult>(prompt, SCHEMAS.analysis, role);
+  const res = await aiService.generateContent<AnalysisResult>(prompt, SCHEMAS.analysis, role, 0, 'analysis');
   if (res) res.sessionType = sessionType;
   return res || {} as AnalysisResult;
 };
 
 export const generateMetaInsight = async (result: AnalysisResult, answers: Answer[]): Promise<{ pattern: string, recommendation: string }> => {
-  const formattedQA = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
+  const formattedQA = aiService.summarizeQA(answers);
   const prompt = `Identify the core behavioral pattern from this ${result.sessionType} session and create a clinical rule. Answers: ${formattedQA}`;
-  const res = await aiService.generateContent<{ pattern: string, recommendation: string }>(prompt, SCHEMAS.metaInsight, "You are a Clinical Supervisor analyzing session patterns.");
+  const res = await aiService.generateContent<{ pattern: string, recommendation: string }>(prompt, SCHEMAS.metaInsight, "You are a Clinical Supervisor analyzing session patterns.", 0, 'metaInsight');
   return res || { pattern: "Undetermined", recommendation: "Standard protocol" };
 };

@@ -23,12 +23,17 @@ dist-ssr
 *.sln
 *.sw?
 
-<<<<<<< Updated upstream
 #Python
-db.sqlite3
+.env
+.env.*
 venv/
+__pycache__/
+*.py[cod]
+*$py.class
 
-=======
-#python
+# Django
+*.log
 db.sqlite3
->>>>>>> Stashed changes
+db.sqlite3-journal
+media/
+staticfiles/
