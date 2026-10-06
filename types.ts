@@ -96,6 +96,10 @@ export interface SessionProgress {
   analysisCompleted: boolean;
   lastError: string | null;
   errorStep: AppStep | null;
+  // Assessment progress tracking
+  assessmentPhase: AssessmentPhase;
+  currentQuestionIndex: number;
+  assessmentQuestions: Question[];
 }
 
 export interface CounsellingSession {

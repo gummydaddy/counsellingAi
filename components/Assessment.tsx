@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Question, Answer, AssessmentPhase, SessionType } from '../types.ts';
 import { generateDeepDiveQuestions, generateRapportQuestion } from '../services/geminiService.ts';
 
@@ -7,18 +6,37 @@ interface Props {
   initialQuestions: Question[];
   sessionType: SessionType;
   onComplete: (answers: Answer[]) => void;
+  onProgress?: (answers: Answer[], currentIndex: number, phase: AssessmentPhase, questions: Question[]) => void;
+  initialAnswers?: Answer[];
+  initialIndex?: number;
+  initialPhase?: AssessmentPhase;
 }
 
-const Assessment: React.FC<Props> = ({ initialQuestions, sessionType, onComplete }) => {
+const Assessment: React.FC<Props> = ({ 
+  initialQuestions, 
+  sessionType, 
+  onComplete, 
+  onProgress,
+  initialAnswers = [],
+  initialIndex = 0,
+  initialPhase = AssessmentPhase.INITIAL
+}) => {
   const [questions, setQuestions] = useState<Question[]>(initialQuestions);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [answers, setAnswers] = useState<Answer[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [answers, setAnswers] = useState<Answer[]>(initialAnswers);
   const [currentInput, setCurrentInput] = useState('');
   const [error, setError] = useState('');
-  const [phase, setPhase] = useState<AssessmentPhase>(AssessmentPhase.INITIAL);
+  const [phase, setPhase] = useState<AssessmentPhase>(initialPhase);
+
+  // Save progress whenever answers, index, phase, or questions change
+  useEffect(() => {
+    if (onProgress) {
+      onProgress(answers, currentIndex, phase, questions);
+    }
+  }, [answers, currentIndex, phase, questions, onProgress]);
 
   const currentQuestion = questions[currentIndex];
-  const progress = ((currentIndex) / (initialQuestions.length * 2 + 1)) * 100;
+  const progress = questions.length > 0 ? ((currentIndex) / questions.length) * 100 : 0;
 
   const handleNext = async () => {
     if (currentInput.trim().length < 5) {

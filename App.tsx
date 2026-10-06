@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType, CounsellingSession, SessionStatus } from './types.ts';
+import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType, CounsellingSession, SessionStatus, AssessmentPhase } from './types.ts';
 import type { User } from './services/auth.service.ts';
 import { SESSION_MCQ_POOLS } from './constants.ts';
 import { analyzeStudentAnswers, generatePhase1Questions, generateRapportQuestion, generateDeepDiveQuestions } from './services/geminiService.ts';
@@ -29,6 +29,19 @@ const App: React.FC = () => {
   const [counselorNotes, setCounselorNotes] = useState<string | null>(null);
   const [sessionAnswers, setSessionAnswers] = useState<Answer[]>([]);
   const [mcqAnswers, setMcqAnswers] = useState<MCQAnswer[]>([]);
+
+  // Assessment progress state
+  const [assessmentProgress, setAssessmentProgress] = useState<{
+    answers: Answer[];
+    currentIndex: number;
+    phase: AssessmentPhase;
+    questions: Question[];
+  }>({
+    answers: [],
+    currentIndex: 0,
+    phase: AssessmentPhase.INITIAL,
+    questions: [],
+  });
 
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -108,6 +121,29 @@ const App: React.FC = () => {
     }
   }, [currentUser, currentSession, loadSessions]);
 
+  const handleAssessmentProgress = useCallback(async (
+    answers: Answer[],
+    currentIndex: number,
+    phase: AssessmentPhase,
+    questions: Question[]
+  ) => {
+    // Update local state
+    setAssessmentProgress({ answers, currentIndex, phase, questions });
+    setSessionAnswers(answers);
+    
+    // Save to session
+    if (currentUser && currentSession) {
+      await saveProgress({
+        assessmentAnswers: answers,
+        progress: {
+          assessmentPhase: phase,
+          currentQuestionIndex: currentIndex,
+          assessmentQuestions: questions,
+        },
+      });
+    }
+  }, [currentUser, currentSession, saveProgress]);
+
   const handleStart = () => {
     setViewingSession(null);
     setActiveSessionId(null);
@@ -143,6 +179,13 @@ const App: React.FC = () => {
         const generatedQuestions = await generatePhase1Questions(null, sessionType, notes);
         setPhase1Questions(generatedQuestions);
         await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
+        // Reset assessment progress for new assessment
+        setAssessmentProgress({
+          answers: [],
+          currentIndex: 0,
+          phase: AssessmentPhase.INITIAL,
+          questions: generatedQuestions,
+        });
         await updateStep(AppStep.ASSESSMENT);
       } catch (e: any) {
         const error = `Context ingestion failed: ${e.message || 'Check your API Key settings.'}`;
@@ -167,6 +210,13 @@ const App: React.FC = () => {
       const generatedQuestions = await generatePhase1Questions(answers, sessionType, null);
       setPhase1Questions(generatedQuestions);
       await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
+      // Reset assessment progress for new assessment
+      setAssessmentProgress({
+        answers: [],
+        currentIndex: 0,
+        phase: AssessmentPhase.INITIAL,
+        questions: generatedQuestions,
+      });
       await updateStep(AppStep.ASSESSMENT);
     } catch (e: any) {
       const error = `Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`;
@@ -181,7 +231,22 @@ const App: React.FC = () => {
 
   const handleAssessmentComplete = async (answers: Answer[]) => {
     setSessionAnswers(answers);
-    await saveProgress({ assessmentAnswers: answers, progress: { assessmentCompleted: true } });
+    // Clear assessment progress since it's complete
+    setAssessmentProgress({
+      answers: [],
+      currentIndex: 0,
+      phase: AssessmentPhase.INITIAL,
+      questions: [],
+    });
+    await saveProgress({ 
+      assessmentAnswers: answers, 
+      progress: { 
+        assessmentCompleted: true,
+        assessmentPhase: AssessmentPhase.DEEP_DIVE,
+        currentQuestionIndex: 0,
+        assessmentQuestions: [],
+      } 
+    });
 
     await updateStep(AppStep.ANALYZING);
     try {
@@ -216,6 +281,12 @@ const App: React.FC = () => {
     setCounselorNotes(null);
     setSessionAnswers([]);
     setMcqAnswers([]);
+    setAssessmentProgress({
+      answers: [],
+      currentIndex: 0,
+      phase: AssessmentPhase.INITIAL,
+      questions: [],
+    });
     setActiveSessionId(null);
     setViewingSession(null);
     setCurrentSession(null);
@@ -247,6 +318,16 @@ const App: React.FC = () => {
     setSessionAnswers(session.assessmentAnswers);
     setResult(session.result);
     setErrorMsg(session.progress.lastError);
+
+    // Restore assessment progress if available
+    if (session.progress.assessmentQuestions.length > 0) {
+      setAssessmentProgress({
+        answers: session.assessmentAnswers,
+        currentIndex: session.progress.currentQuestionIndex,
+        phase: session.progress.assessmentPhase,
+        questions: session.progress.assessmentQuestions,
+      });
+    }
 
     // Determine where to resume based on progress
     const progress = session.progress;
@@ -432,7 +513,15 @@ const App: React.FC = () => {
         )}
 
         {step === AppStep.ASSESSMENT && (
-          <Assessment initialQuestions={phase1Questions} sessionType={sessionType} onComplete={handleAssessmentComplete} />
+          <Assessment
+            initialQuestions={phase1Questions}
+            sessionType={sessionType}
+            onComplete={handleAssessmentComplete}
+            onProgress={handleAssessmentProgress}
+            initialAnswers={assessmentProgress.answers}
+            initialIndex={assessmentProgress.currentIndex}
+            initialPhase={assessmentProgress.phase}
+          />
         )}
 
         {step === AppStep.ANALYZING && (

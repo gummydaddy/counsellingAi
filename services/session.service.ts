@@ -1,4 +1,4 @@
-import { CounsellingSession, SessionType, Answer, AnalysisResult, Question, MCQAnswer, SessionProgress, SessionStatus, AppStep } from '../types.ts';
+import { CounsellingSession, SessionType, Answer, AnalysisResult, Question, MCQAnswer, SessionProgress, SessionStatus, AppStep, AssessmentPhase } from '../types.ts';
 
 class SessionService {
   private readonly SESSIONS_PREFIX = 'counsellingAi_sessions_';
@@ -16,6 +16,9 @@ class SessionService {
       analysisCompleted: false,
       lastError: null,
       errorStep: null,
+      assessmentPhase: AssessmentPhase.INITIAL,
+      currentQuestionIndex: 0,
+      assessmentQuestions: [],
     };
   }
 
@@ -143,6 +146,15 @@ class SessionService {
     }
     if (step > AppStep.ASSESSMENT) {
       newProgress.assessmentCompleted = sessions[index].progress.assessmentCompleted;
+      // Preserve assessment progress if we're past assessment
+      newProgress.assessmentPhase = sessions[index].progress.assessmentPhase;
+      newProgress.currentQuestionIndex = sessions[index].progress.currentQuestionIndex;
+      newProgress.assessmentQuestions = sessions[index].progress.assessmentQuestions;
+    } else if (step === AppStep.ASSESSMENT) {
+      // If retrying at assessment step, preserve the assessment progress
+      newProgress.assessmentPhase = sessions[index].progress.assessmentPhase;
+      newProgress.currentQuestionIndex = sessions[index].progress.currentQuestionIndex;
+      newProgress.assessmentQuestions = sessions[index].progress.assessmentQuestions;
     }
     if (step > AppStep.ANALYZING) {
       newProgress.analysisCompleted = sessions[index].progress.analysisCompleted;
