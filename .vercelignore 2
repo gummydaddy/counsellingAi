@@ -1,0 +1,45 @@
+# Vercel ignore file - Exclude Python/Django backend from frontend deployment
+# This prevents Vercel from trying to build Python dependencies
+
+# Python/Django backend
+config/
+identity/
+organizations/
+subscriptions/
+audit/
+common/
+*.py
+*.pyc
+__pycache__/
+.venv/
+venv/
+requirements.txt
+manage.py
+db.sqlite3
+POSTGRES_SETUP.md
+
+# Django migrations
+**/migrations/
+
+# Virtual environments
+**/.venv/
+**/venv/
+
+# Python cache
+**/__pycache__/
+**/*.pyc
+
+# Environment files (use Vercel dashboard instead)
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db

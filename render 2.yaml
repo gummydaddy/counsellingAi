@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: mindpath-backend
+    runtime: python3
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput"
+    startCommand: "gunicorn config.wsgi:application"
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: "False"
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "mindpath-backend.onrender.com"
+      - key: JWT_SIGNING_KEY
+        generateValue: true
+      - key: VERCEL_ORIGIN
+        sync: false  # Set this manually in Render dashboard
+      - key: PYTHON_VERSION
+        value: "3.11"
+    # Add PostgreSQL database (create separately in Render dashboard)
+    # DATABASE_URL will be automatically provided by Render PostgreSQL addon
+
+databases:
+  - name: mindpath-db
+    databaseName: mindpath
+    user: mindpath
+    plan: free  # or starter for production

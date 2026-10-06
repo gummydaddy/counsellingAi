@@ -86,12 +86,27 @@ export enum AssessmentPhase {
   DEEP_DIVE
 }
 
+export type SessionStatus = 'in_progress' | 'completed' | 'error';
+
+export interface SessionProgress {
+  currentStep: AppStep;
+  phase1Generated: boolean;
+  mcqCompleted: boolean;
+  assessmentCompleted: boolean;
+  analysisCompleted: boolean;
+  lastError: string | null;
+  errorStep: AppStep | null;
+}
+
 export interface CounsellingSession {
   id: string;
   userId: string;
   sessionType: SessionType;
   title: string;
   createdAt: string;
+  updatedAt: string;
+  status: SessionStatus;
+  progress: SessionProgress;
   counselorNotes: string | null;
   phase1Questions: Question[];
   mcqAnswers: MCQAnswer[];

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CounsellingSession, SessionType, Answer, MCQAnswer } from '../types.ts';
+import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus } from '../types.ts';
 import ChatSession from './ChatSession.tsx';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
@@ -8,6 +8,7 @@ import {
 interface Props {
   session: CounsellingSession;
   onBack: () => void;
+  onRetry?: (session: CounsellingSession) => void;
 }
 
 const SESSION_ICONS: Record<SessionType, string> = {
@@ -40,12 +41,13 @@ const getSessionTheme = (type: SessionType) => {
 
 type Tab = 'results' | 'questions' | 'answers' | 'chat';
 
-const SessionDetailView: React.FC<Props> = ({ session, onBack }) => {
+const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const [activeTab, setActiveTab] = useState<Tab>('results');
   const theme = getSessionTheme(session.sessionType);
   const labels = getTraitLabels(session.sessionType);
   const result = session.result;
   const isHighRisk = result?.riskAssessment?.isConcern;
+  const isIncomplete = session.status === 'in_progress' || session.status === 'error';
 
   const radarData = result ? [
     { subject: labels[0], Value: result.traits.empathy, fullMark: 100 },
@@ -84,15 +86,46 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-1">
           <span className="text-2xl">{SESSION_ICONS[session.sessionType]}</span>
-          <div>
+          <div className="flex-1">
             <h1 className="text-xl font-bold text-slate-900">{session.title}</h1>
             <p className="text-xs text-slate-500">
               {new Date(session.createdAt).toLocaleDateString('en-US', {
                 weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
               })}
             </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {session.status === 'in_progress' && (
+              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-700 text-xs font-bold rounded-full flex items-center gap-1">
+                <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></span>
+                In Progress
+              </span>
+            )}
+            {session.status === 'error' && (
+              <span className="px-3 py-1 bg-red-500/20 text-red-700 text-xs font-bold rounded-full flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                Error
+              </span>
+            )}
+            {session.status === 'completed' && (
+              <span className="px-3 py-1 bg-green-500/20 text-green-700 text-xs font-bold rounded-full flex items-center gap-1">
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                Completed
+              </span>
+            )}
+            {isIncomplete && onRetry && (
+              <button
+                onClick={() => onRetry(session)}
+                className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-lg hover:bg-brand-700 transition-colors flex items-center gap-2 shadow-lg shadow-brand-100"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                {session.status === 'error' ? 'Retry' : 'Continue'}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -249,8 +282,32 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
       {/* Results tab but no result */}
       {activeTab === 'results' && !result && (
         <div className="text-center py-16 text-slate-400">
-          <p className="text-lg font-medium">No results available</p>
-          <p className="text-sm mt-1">This session was not completed.</p>
+          {isIncomplete ? (
+            <div className="space-y-4">
+              <p className="text-lg font-medium">
+                {session.status === 'error' ? 'Session Interrupted' : 'Session In Progress'}
+              </p>
+              <p className="text-sm">
+                {session.status === 'error' 
+                  ? `Error at ${session.progress.errorStep ? session.progress.errorStep : 'unknown step'}: ${session.progress.lastError || 'Unknown error'}`
+                  : 'Continue from where you left off'}
+              </p>
+              <div className="w-full max-w-md mx-auto mt-6">
+                <div className="w-full bg-slate-200 rounded-full h-2.5 mb-2">
+                  <div 
+                    className="bg-brand-600 h-2.5 rounded-full transition-all duration-500 ease-out" 
+                    style={{ width: `${getProgressPercent(session.progress)}%` }}
+                  ></div>
+                </div>
+                <p className="text-xs text-slate-500">{getProgressLabel(session.progress)}</p>
+              </div>
+            </div>
+          ) : (
+            <>
+              <p className="text-lg font-medium">No results available</p>
+              <p className="text-sm mt-1">This session was not completed.</p>
+            </>
+          )}
         </div>
       )}
 
@@ -349,6 +406,22 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
       )}
     </div>
   );
+};
+
+const getProgressPercent = (progress: any): number => {
+  if (progress.mcqCompleted) return 25;
+  if (progress.phase1Generated) return 40;
+  if (progress.assessmentCompleted) return 75;
+  if (progress.analysisCompleted) return 100;
+  return 10;
+};
+
+const getProgressLabel = (progress: any): string => {
+  if (progress.analysisCompleted) return 'Analysis complete';
+  if (progress.assessmentCompleted) return 'Assessment complete, analyzing...';
+  if (progress.phase1Generated) return 'Questions generated, in assessment...';
+  if (progress.mcqCompleted) return 'MCQ complete, generating questions...';
+  return 'Starting session...';
 };
 
 export default SessionDetailView;
