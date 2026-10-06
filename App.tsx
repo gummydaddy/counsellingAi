@@ -1,9 +1,8 @@
-
-import React, { useState, useEffect, useCallback } from 'react';
-import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType, CounsellingSession } from './types.ts';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType, CounsellingSession, SessionStatus, AssessmentPhase } from './types.ts';
 import type { User } from './services/auth.service.ts';
 import { SESSION_MCQ_POOLS } from './constants.ts';
-import { analyzeStudentAnswers, generatePhase1Questions } from './services/geminiService.ts';
+import { analyzeStudentAnswers, generatePhase1Questions, generateRapportQuestion, generateDeepDiveQuestions } from './services/geminiService.ts';
 import { KnowledgeBaseService } from './services/knowledgeBaseService.ts';
 import { authService } from './services/auth.service.ts';
 import { sessionService } from './services/session.service.ts';
@@ -16,7 +15,6 @@ import { CounselorNotesLayer } from './components/CounselorNotesLayer.tsx';
 import AdminComponents from './components/AdminComponents.tsx';
 import SessionSidebar from './components/SessionSidebar.tsx';
 import SessionDetailView from './components/SessionDetailView.tsx';
-
 
 
 const App: React.FC = () => {
@@ -32,14 +30,36 @@ const App: React.FC = () => {
   const [sessionAnswers, setSessionAnswers] = useState<Answer[]>([]);
   const [mcqAnswers, setMcqAnswers] = useState<MCQAnswer[]>([]);
 
+  // Assessment progress state
+  const [assessmentProgress, setAssessmentProgress] = useState<{
+    answers: Answer[];
+    currentIndex: number;
+    phase: AssessmentPhase;
+    questions: Question[];
+  }>({
+    answers: [],
+    currentIndex: 0,
+    phase: AssessmentPhase.INITIAL,
+    questions: [],
+  });
+
   // Sidebar state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [sessions, setSessions] = useState<CounsellingSession[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [viewingSession, setViewingSession] = useState<CounsellingSession | null>(null);
 
+  // Current session being worked on
+  const [currentSession, setCurrentSession] = useState<CounsellingSession | null>(null);
+
   // Default state to prevent undefined errors before data loads
   const [aiStats, setAiStats] = useState({ totalSessionsLearned: 0, experienceLevel: 'Novice' });
+
+  // Refs to prevent stale closures in async handlers
+  const currentSessionRef = useRef<CounsellingSession | null>(null);
+  const currentUserRef = useRef<User | null>(null);
+  currentSessionRef.current = currentSession;
+  currentUserRef.current = currentUser;
 
   const checkAuth = useCallback(() => {
     const user = authService.getCurrentUser();
@@ -80,10 +100,54 @@ const App: React.FC = () => {
     fetchStats();
   }, [step]); // Re-fetch when step changes (e.g. after a session ends)
 
+  const saveProgress = useCallback(async (updates: Partial<CounsellingSession>) => {
+    if (!currentUser || !currentSession) return;
+    const updated = sessionService.updateSessionData(currentUser.id, currentSession.id, updates);
+    if (updated) {
+      setCurrentSession(updated);
+      loadSessions(currentUser.id);
+    }
+  }, [currentUser, currentSession, loadSessions]);
+
+  const updateStep = useCallback(async (newStep: AppStep) => {
+    if (!currentUser || !currentSession) return;
+    const updated = sessionService.updateSessionStep(currentUser.id, currentSession.id, newStep);
+    if (updated) {
+      setCurrentSession(updated);
+      setStep(newStep);
+      loadSessions(currentUser.id);
+    } else {
+      setStep(newStep);
+    }
+  }, [currentUser, currentSession, loadSessions]);
+
+  const handleAssessmentProgress = useCallback(async (
+    answers: Answer[],
+    currentIndex: number,
+    phase: AssessmentPhase,
+    questions: Question[]
+  ) => {
+    // Update local state
+    setAssessmentProgress({ answers, currentIndex, phase, questions });
+    setSessionAnswers(answers);
+    
+    // Save to session
+    if (currentUser && currentSession) {
+      await saveProgress({
+        assessmentAnswers: answers,
+        progress: {
+          assessmentPhase: phase,
+          currentQuestionIndex: currentIndex,
+          assessmentQuestions: questions,
+        },
+      });
+    }
+  }, [currentUser, currentSession, saveProgress]);
 
   const handleStart = () => {
     setViewingSession(null);
     setActiveSessionId(null);
+    setCurrentSession(null);
     setStep(AppStep.SESSION_SELECTION);
   };
 
@@ -94,58 +158,118 @@ const App: React.FC = () => {
 
   const handleNotesProvided = async (notes: string | null) => {
     setCounselorNotes(notes);
+    
+    // Create or update session
+    if (currentUser) {
+      if (!currentSession) {
+        // Create new session
+        const newSession = sessionService.createSession(currentUser.id, sessionType, notes);
+        setCurrentSession(newSession);
+        setActiveSessionId(newSession.id);
+        loadSessions(currentUser.id);
+      } else {
+        // Update existing session with notes
+        await saveProgress({ counselorNotes: notes });
+      }
+    }
+
     if (notes) {
-      setStep(AppStep.GENERATING_PHASE1);
+      await updateStep(AppStep.GENERATING_PHASE1);
       try {
         const generatedQuestions = await generatePhase1Questions(null, sessionType, notes);
         setPhase1Questions(generatedQuestions);
-        setStep(AppStep.ASSESSMENT);
+        await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
+        // Reset assessment progress for new assessment
+        setAssessmentProgress({
+          answers: [],
+          currentIndex: 0,
+          phase: AssessmentPhase.INITIAL,
+          questions: generatedQuestions,
+        });
+        await updateStep(AppStep.ASSESSMENT);
       } catch (e: any) {
-        setErrorMsg(`Context ingestion failed: ${e.message || 'Check your API Key settings.'}`);
+        const error = `Context ingestion failed: ${e.message || 'Check your API Key settings.'}`;
+        setErrorMsg(error);
+        if (currentUser && currentSession) {
+          sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+          loadSessions(currentUser.id);
+        }
         setStep(AppStep.ERROR);
       }
     } else {
-      setStep(AppStep.MCQ_PHASE);
+      await updateStep(AppStep.MCQ_PHASE);
     }
   };
 
   const handleMCQComplete = async (answers: MCQAnswer[]) => {
     setMcqAnswers(answers);
-    setStep(AppStep.GENERATING_PHASE1);
+    await saveProgress({ mcqAnswers: answers, progress: { mcqCompleted: true } });
+
+    await updateStep(AppStep.GENERATING_PHASE1);
     try {
       const generatedQuestions = await generatePhase1Questions(answers, sessionType, null);
       setPhase1Questions(generatedQuestions);
-      setStep(AppStep.ASSESSMENT);
+      await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
+      // Reset assessment progress for new assessment
+      setAssessmentProgress({
+        answers: [],
+        currentIndex: 0,
+        phase: AssessmentPhase.INITIAL,
+        questions: generatedQuestions,
+      });
+      await updateStep(AppStep.ASSESSMENT);
     } catch (e: any) {
-      setErrorMsg(`Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`);
+      const error = `Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`;
+      setErrorMsg(error);
+      if (currentUser && currentSession) {
+        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+        loadSessions(currentUser.id);
+      }
       setStep(AppStep.ERROR);
     }
   };
 
   const handleAssessmentComplete = async (answers: Answer[]) => {
     setSessionAnswers(answers);
-    setStep(AppStep.ANALYZING);
+    // Clear assessment progress since it's complete
+    setAssessmentProgress({
+      answers: [],
+      currentIndex: 0,
+      phase: AssessmentPhase.INITIAL,
+      questions: [],
+    });
+    await saveProgress({ 
+      assessmentAnswers: answers, 
+      progress: { 
+        assessmentCompleted: true,
+        assessmentPhase: AssessmentPhase.DEEP_DIVE,
+        currentQuestionIndex: 0,
+        assessmentQuestions: [],
+      } 
+    });
+
+    await updateStep(AppStep.ANALYZING);
     try {
       const analysis = await analyzeStudentAnswers(answers, sessionType);
       setResult(analysis);
-      setStep(AppStep.RESULTS);
 
-      // Save session to storage
-      if (currentUser) {
-        const savedSession = sessionService.saveSession(
-          currentUser.id,
-          sessionType,
-          counselorNotes,
-          phase1Questions,
-          mcqAnswers,
-          answers,
-          analysis
-        );
-        setActiveSessionId(savedSession.id);
+      // Complete the session
+      if (currentUser && currentSession) {
+        const completedSession = sessionService.completeSession(currentUser.id, currentSession.id, analysis);
+        if (completedSession) {
+          setCurrentSession(completedSession);
+          setActiveSessionId(completedSession.id);
+        }
         loadSessions(currentUser.id);
       }
+      await updateStep(AppStep.RESULTS);
     } catch (e: any) {
-      setErrorMsg(`Analysis Engine failed: ${e.message || 'Check browser console for details.'}`);
+      const error = `Analysis Engine failed: ${e.message || 'Check browser console for details.'}`;
+      setErrorMsg(error);
+      if (currentUser && currentSession) {
+        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.ANALYZING);
+        loadSessions(currentUser.id);
+      }
       setStep(AppStep.ERROR);
     }
   };
@@ -157,8 +281,15 @@ const App: React.FC = () => {
     setCounselorNotes(null);
     setSessionAnswers([]);
     setMcqAnswers([]);
+    setAssessmentProgress({
+      answers: [],
+      currentIndex: 0,
+      phase: AssessmentPhase.INITIAL,
+      questions: [],
+    });
     setActiveSessionId(null);
     setViewingSession(null);
+    setCurrentSession(null);
     setStep(AppStep.WELCOME);
   };
 
@@ -173,6 +304,61 @@ const App: React.FC = () => {
     setActiveSessionId(session.id);
     setSidebarCollapsed(true);
     setStep(AppStep.WELCOME);
+  };
+
+  const handleContinueSession = (session: CounsellingSession) => {
+    // Resume an incomplete session
+    setViewingSession(null);
+    setActiveSessionId(session.id);
+    setCurrentSession(session);
+    setSessionType(session.sessionType);
+    setCounselorNotes(session.counselorNotes);
+    setPhase1Questions(session.phase1Questions);
+    setMcqAnswers(session.mcqAnswers);
+    setSessionAnswers(session.assessmentAnswers);
+    setResult(session.result);
+    setErrorMsg(session.progress.lastError);
+
+    // Restore assessment progress if available
+    if (session.progress.assessmentQuestions.length > 0) {
+      setAssessmentProgress({
+        answers: session.assessmentAnswers,
+        currentIndex: session.progress.currentQuestionIndex,
+        phase: session.progress.assessmentPhase,
+        questions: session.progress.assessmentQuestions,
+      });
+    }
+
+    // Determine where to resume based on progress
+    const progress = session.progress;
+    if (progress.errorStep) {
+      // Resume from error step
+      setStep(progress.errorStep);
+    } else if (progress.analysisCompleted) {
+      setStep(AppStep.RESULTS);
+    } else if (progress.assessmentCompleted) {
+      setStep(AppStep.ANALYZING);
+    } else if (progress.phase1Generated) {
+      setStep(AppStep.ASSESSMENT);
+    } else if (progress.mcqCompleted) {
+      setStep(AppStep.GENERATING_PHASE1);
+    } else if (session.counselorNotes !== null) {
+      setStep(AppStep.GENERATING_PHASE1);
+    } else {
+      setStep(AppStep.MCQ_PHASE);
+    }
+    setSidebarCollapsed(true);
+  };
+
+  const handleRetrySession = (session: CounsellingSession) => {
+    if (!currentUser) return;
+    
+    // Reset error and retry from the failed step
+    const retriedSession = sessionService.retryFromStep(currentUser.id, session.id, session.progress.errorStep || AppStep.WELCOME);
+    if (retriedSession) {
+      loadSessions(currentUser.id);
+      handleContinueSession(retriedSession);
+    }
   };
 
   const handleDeleteSession = (sessionId: string) => {
@@ -190,6 +376,12 @@ const App: React.FC = () => {
     setActiveSessionId(null);
     setStep(AppStep.WELCOME);
   };
+
+  // Handle Assessment component's internal phase changes
+  const handleAssessmentPhaseChange = useCallback((newPhase: any) => {
+    // The Assessment component manages its own phases internally
+    // We just need to ensure the session is updated when phases complete
+  }, []);
 
     if (!isAuthenticated) {
       return <AdminComponents />;
@@ -212,6 +404,7 @@ const App: React.FC = () => {
           onNewSession={handleNewSession}
           onSelectSession={handleSelectPastSession}
           onDeleteSession={handleDeleteSession}
+          onContinueSession={handleContinueSession}
         />
         <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
           <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
@@ -241,7 +434,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <main className="flex-grow" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
-          <SessionDetailView session={viewingSession} onBack={handleBackFromSessionView} />
+          <SessionDetailView session={viewingSession} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
         </main>
       </div>
     );
@@ -257,6 +450,7 @@ const App: React.FC = () => {
         onNewSession={handleNewSession}
         onSelectSession={handleSelectPastSession}
         onDeleteSession={handleDeleteSession}
+        onContinueSession={handleContinueSession}
       />
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
         <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
@@ -275,16 +469,21 @@ const App: React.FC = () => {
                   <span className="text-brand-600">{aiStats.totalSessionsLearned} Sessions</span>
                 </div>
                  {currentUser?.role === 'admin' && (
-                   <button
-                     onClick={() => setShowAdminPanel(true)}
-                     className="px-3 py-1 bg-[#D32F2F] text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors"
-                   >
-                     Admin Panel
-                   </button>
-                 )}
+                    <button
+                      onClick={() => setShowAdminPanel(true)}
+                      className="px-3 py-1 bg-[#D32F2F] text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors"
+                    >
+                      Admin Panel
+                    </button>
+                  )}
                 {step !== AppStep.WELCOME && (
                   <span className="px-3 py-1 bg-slate-100 text-slate-500 text-xs rounded-full font-bold uppercase tracking-wider">
                     {sessionType}
+                  </span>
+                )}
+                {currentSession && currentSession.status === 'error' && (
+                  <span className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded-full font-bold uppercase tracking-wider">
+                    Error - Click to Retry
                   </span>
                 )}
                 <button
@@ -314,7 +513,15 @@ const App: React.FC = () => {
         )}
 
         {step === AppStep.ASSESSMENT && (
-          <Assessment initialQuestions={phase1Questions} sessionType={sessionType} onComplete={handleAssessmentComplete} />
+          <Assessment
+            initialQuestions={phase1Questions}
+            sessionType={sessionType}
+            onComplete={handleAssessmentComplete}
+            onProgress={handleAssessmentProgress}
+            initialAnswers={assessmentProgress.answers}
+            initialIndex={assessmentProgress.currentIndex}
+            initialPhase={assessmentProgress.phase}
+          />
         )}
 
         {step === AppStep.ANALYZING && (
@@ -332,15 +539,28 @@ const App: React.FC = () => {
         {step === AppStep.ERROR && (
           <div className="text-center py-12 px-4 max-w-lg mx-auto">
              <div className="mb-6 inline-flex items-center justify-center w-12 h-12 bg-red-100 rounded-full text-red-600">
-               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-             </div>
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
             <h3 className="text-xl font-bold text-red-600 mb-2">System Interrupted</h3>
             <p className="text-slate-600 mb-6 bg-white p-4 rounded-xl border border-slate-200 text-sm font-mono break-all">
               {errorMsg}
             </p>
-            <button onClick={handleReset} className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100">
-              Restart Session
-            </button>
+            <div className="flex gap-4 justify-center">
+              {currentSession && (
+                <button 
+                  onClick={() => handleRetrySession(currentSession)}
+                  className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
+                  Retry from Failed Step
+                </button>
+              )}
+              <button onClick={handleReset} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+                Start New Session
+              </button>
+            </div>
           </div>
         )}
       </main>

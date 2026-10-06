@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { CounsellingSession, SessionType } from '../types.ts';
+import { CounsellingSession, SessionType, SessionStatus, AppStep } from '../types.ts';
 
 interface Props {
   sessions: CounsellingSession[];
@@ -9,6 +9,7 @@ interface Props {
   onNewSession: () => void;
   onSelectSession: (session: CounsellingSession) => void;
   onDeleteSession: (sessionId: string) => void;
+  onContinueSession: (session: CounsellingSession) => void;
 }
 
 const SESSION_ICONS: Record<SessionType, string> = {
@@ -27,6 +28,7 @@ const SessionSidebar: React.FC<Props> = ({
   onNewSession,
   onSelectSession,
   onDeleteSession,
+  onContinueSession,
 }) => {
   const [hoveredSession, setHoveredSession] = useState<string | null>(null);
 
@@ -129,23 +131,49 @@ const SessionSidebar: React.FC<Props> = ({
                             ● {session.result.riskAssessment.level}
                           </span>
                         )}
+                        {session.status === 'in_progress' && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-yellow-500/20 text-yellow-400 text-[9px] font-bold rounded-full">
+                            IN PROGRESS
+                          </span>
+                        )}
+                        {session.status === 'error' && (
+                          <span className="ml-2 px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[9px] font-bold rounded-full">
+                            ERROR
+                          </span>
+                        )}
                       </p>
                     </div>
 
-                    {/* Delete button */}
+                    {/* Action buttons on hover */}
                     {hoveredSession === session.id && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onDeleteSession(session.id);
-                        }}
-                        className="absolute right-2 p-1.5 rounded-md bg-slate-800 hover:bg-red-600/80 text-slate-400 hover:text-white transition-all"
-                        title="Delete session"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        {session.status === 'in_progress' || session.status === 'error' ? (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onContinueSession(session);
+                            }}
+                            className="p-1.5 rounded-md bg-brand-600 hover:bg-brand-700 text-white transition-all"
+                            title="Continue session"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                            </svg>
+                          </button>
+                        ) : null}
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onDeleteSession(session.id);
+                          }}
+                          className="p-1.5 rounded-md bg-slate-800 hover:bg-red-600/80 text-slate-400 hover:text-white transition-all"
+                          title="Delete session"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
