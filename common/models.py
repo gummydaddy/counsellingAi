@@ -156,7 +156,6 @@ class Address(models.Model):
         verbose_name_plural = "Addresses"
 
     def __str__(self):
-<<<<<<< HEAD
         return f"{self.address_line_1}, {self.city}, {self.country}"
 
 
@@ -211,6 +210,3 @@ class ClinicalInsight(models.Model):
             return []
         import struct
         return list(struct.unpack(f'{len(self.embedding)//4}f', self.embedding))
-=======
-        return f"{self.address_line_1}, {self.city}, {self.country}"
->>>>>>> main
