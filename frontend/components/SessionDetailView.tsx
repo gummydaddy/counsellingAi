@@ -1,6 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus } from '../types.ts';
 import ChatSession from './ChatSession.tsx';
+import { sessionService } from '../services/session.service.ts';
+import { crossSessionAnalysis, CrossSessionInsight, SessionRelation } from '../services/crossSessionAnalysis.ts';
+import { authService } from '../services/auth.service.ts';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
@@ -39,7 +42,7 @@ const getSessionTheme = (type: SessionType) => {
   }
 };
 
-type Tab = 'results' | 'questions' | 'answers' | 'chat';
+type Tab = 'results' | 'questions' | 'answers' | 'chat' | 'insights';
 
 const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const [activeTab, setActiveTab] = useState<Tab>('results');
@@ -48,6 +51,35 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const result = session.result;
   const isHighRisk = result?.riskAssessment?.isConcern;
   const isIncomplete = session.status === 'in_progress' || session.status === 'error';
+
+  // Cross-session analysis state
+  const [crossSessionInsights, setCrossSessionInsights] = useState<CrossSessionInsight[]>([]);
+  const [relatedSessions, setRelatedSessions] = useState<SessionRelation[]>([]);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+
+  useEffect(() => {
+    const user = authService.getCurrentUser();
+    if (user && session.userId === user.id && result) {
+      loadCrossSessionData();
+    }
+  }, [session, result]);
+
+  const loadCrossSessionData = () => {
+    const user = authService.getCurrentUser();
+    if (!user) return;
+    
+    setInsightsLoading(true);
+    try {
+      const insights = crossSessionAnalysis.generateCrossSessionInsights(user.id);
+      const relations = crossSessionAnalysis.findRelatedSessions(user.id, session.id);
+      setCrossSessionInsights(insights);
+      setRelatedSessions(relations);
+    } catch (error) {
+      console.error('Failed to load cross-session data:', error);
+    } finally {
+      setInsightsLoading(false);
+    }
+  };
 
   const radarData = result ? [
     { subject: labels[0], Value: result.traits.empathy, fullMark: 100 },
@@ -72,6 +104,7 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
     { id: 'questions', label: 'Questions', count: allQuestions.length },
     { id: 'answers', label: 'Answers', count: allAnswers.length },
     { id: 'chat', label: 'Chat' },
+    { id: 'insights', label: 'Insights', count: crossSessionInsights.length + relatedSessions.length },
   ];
 
   return (
@@ -402,6 +435,116 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
         <div className="text-center py-16 text-slate-400">
           <p className="text-lg font-medium">Chat not available</p>
           <p className="text-sm mt-1">This session was not completed.</p>
+        </div>
+      )}
+
+      {/* Insights Tab */}
+      {activeTab === 'insights' && (
+        <div className="space-y-6 animate-fade-in">
+          {/* Cross-Session Insights */}
+          {crossSessionInsights.length > 0 && (
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+                Cross-Session Insights
+              </h3>
+              <div className="space-y-4">
+                {crossSessionInsights.map((insight, i) => (
+                  <div key={i} className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
+                    <div className="flex items-start gap-3">
+                      <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
+                        insight.type === 'risk' ? 'bg-red-100 text-red-600' :
+                        insight.type === 'trend' ? 'bg-emerald-100 text-emerald-600' :
+                        insight.type === 'pattern' ? 'bg-brand-100 text-brand-600' :
+                        'bg-purple-100 text-purple-600'
+                      }`}>
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          {insight.type === 'risk' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
+                          {insight.type === 'trend' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 4v8m0-8l-8 8-4-4-6 6" />}
+                          {insight.type === 'pattern' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m-4 0h8m-4 0l2-4-2-4" />}
+                          {insight.type === 'correlation' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />}
+                        </svg>
+                      </div>
+                      <div className="flex-1">
+                        <h4 className="font-bold text-slate-900 mb-1">{insight.title}</h4>
+                        <p className="text-sm text-slate-600 leading-relaxed mb-3">{insight.description}</p>
+                        <div className="flex items-center gap-4 text-xs">
+                          <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full font-medium">
+                            Confidence: {Math.round(insight.confidence * 100)}%
+                          </span>
+                          {insight.actionable && (
+                            <span className="px-2 py-1 bg-brand-100 text-brand-700 rounded-full font-medium">
+                              💡 {insight.actionable}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Related Sessions */}
+          {relatedSessions.length > 0 && (
+            <div>
+              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
+                <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                </svg>
+                Related Sessions ({relatedSessions.length})
+              </h3>
+              <div className="space-y-3">
+                {relatedSessions.slice(0, 5).map((rel, i) => (
+                  <div key={rel.sessionId} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold">
+                          {Math.round(rel.similarity * 100)}%
+                        </div>
+                        <div>
+                          <p className="font-medium text-slate-800 text-sm">Session {i + 1}</p>
+                          <p className="text-xs text-slate-500">Similarity: {Math.round(rel.similarity * 100)}%</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1">
+                        {rel.sharedTraits.map(trait => (
+                          <span key={trait} className="px-2 py-1 bg-brand-50 text-brand-700 text-[10px] font-medium rounded-full">
+                            {trait}
+                          </span>
+                        ))}
+                        {rel.sharedPatterns.map(pattern => (
+                          <span key={pattern} className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium rounded-full">
+                            {pattern}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {crossSessionInsights.length === 0 && relatedSessions.length === 0 && (
+            <div className="text-center py-16 text-slate-400">
+              <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+              </svg>
+              <p className="text-lg font-medium">No cross-session insights yet</p>
+              <p className="text-sm mt-1">Complete more sessions to unlock pattern analysis and related session discovery.</p>
+            </div>
+          )}
+
+          {insightsLoading && (
+            <div className="flex items-center justify-center py-8">
+              <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin"></div>
+              <span className="ml-2 text-sm text-slate-500">Analyzing patterns...</span>
+            </div>
+          )}
         </div>
       )}
     </div>

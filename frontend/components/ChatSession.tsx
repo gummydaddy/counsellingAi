@@ -1,34 +1,74 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { AnalysisResult, SessionType, Answer } from '../types.ts';
 import { aiService } from '../services/geminiService.ts';
+import { chatMemoryService, ChatMessage } from '../services/chatMemoryService.ts';
+import { sessionService } from '../services/session.service.ts';
+import { authService } from '../services/auth.service.ts';
 
 interface Props {
   result: AnalysisResult;
   answers: Answer[];
   sessionType: SessionType;
+  sessionId?: string;
 }
 
-const ChatSession: React.FC<Props> = ({ result, answers, sessionType }) => {
-  const [messages, setMessages] = useState<Array<{role: 'user' | 'assistant', content: string, timestamp: number}>>([]);
+const ChatSession: React.FC<Props> = ({ result, answers, sessionType, sessionId }) => {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [chatInitialized, setChatInitialized] = useState(false);
+  const [memoryStats, setMemoryStats] = useState({ messageCount: 0, tokenCount: 0, hasSummary: false });
+  const currentUser = authService.getCurrentUser();
 
   useEffect(() => {
-    // Initialize chat with a contextual greeting based on the result
-    initializeChat();
-  }, [result, answers, sessionType]);
+    if (sessionId && currentUser) {
+      initializeChat();
+      loadMemoryStats();
+    }
+  }, [sessionId, currentUser, result, answers, sessionType]);
+
+  const loadMemoryStats = () => {
+    if (sessionId && currentUser) {
+      const stats = chatMemoryService.getMemoryStats(currentUser.id, sessionId);
+      setMemoryStats(stats);
+    }
+  };
 
   const initializeChat = () => {
-    const greeting = getInitialGreeting();
-    setMessages([
-      {
+    if (!sessionId || !currentUser) return;
+
+    // Get or create chat memory
+    const memory = chatMemoryService.getOrCreateMemory(
+      currentUser.id, 
+      sessionId, 
+      sessionType, 
+      result
+    );
+
+    // Load existing messages
+    const history = chatMemoryService.getChatHistory(currentUser.id, sessionId);
+    
+    if (history.length > 0) {
+      setMessages(history);
+    } else {
+      // First time - add greeting
+      const greeting = getInitialGreeting();
+      const greetingMsg: ChatMessage = {
+        id: `msg-${Date.now()}-init`,
         role: 'assistant',
         content: greeting,
-        timestamp: Date.now()
-      }
-    ]);
+        timestamp: Date.now(),
+        tokens: Math.ceil(greeting.length / 4),
+      };
+      setMessages([greetingMsg]);
+      chatMemoryService.addMessage(currentUser.id, sessionId, {
+        role: 'assistant',
+        content: greeting,
+        timestamp: Date.now(),
+      });
+    }
     setChatInitialized(true);
+    loadMemoryStats();
   };
 
   const getInitialGreeting = () => {
@@ -46,47 +86,83 @@ const ChatSession: React.FC<Props> = ({ result, answers, sessionType }) => {
     return `Hello! I'm your counseling companion. I've reviewed your ${typeLabel} session results and see you're identified as a ${archetype}. How can I help you better understand your results or explore any questions you have about your ${typeLabel} journey?`;
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSend = useCallback(async () => {
+    if (!input.trim() || isLoading || !sessionId || !currentUser) return;
 
     const userMessage = input;
     setInput('');
     setIsLoading(true);
 
-    // Add user message to chat
-    setMessages(prev => [...prev, {
+    // Add user message to local state immediately
+    const userMsg: ChatMessage = {
+      id: `msg-${Date.now()}-user`,
       role: 'user',
       content: userMessage,
-      timestamp: Date.now()
-    }]);
+      timestamp: Date.now(),
+      tokens: Math.ceil(userMessage.length / 4),
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    // Save to memory
+    chatMemoryService.addMessage(currentUser.id, sessionId, {
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+    });
 
     try {
-      // Get AI response based on context
+      // Get AI response using optimized prompt
       const aiResponse = await getChatResponse(userMessage);
       
-      // Add assistant response to chat
-      setMessages(prev => [...prev, {
+      // Add assistant response to local state
+      const assistantMsg: ChatMessage = {
+        id: `msg-${Date.now()}-assistant`,
         role: 'assistant',
         content: aiResponse,
-        timestamp: Date.now()
-      }]);
+        timestamp: Date.now(),
+        tokens: Math.ceil(aiResponse.length / 4),
+      };
+      setMessages(prev => [...prev, assistantMsg]);
+
+      // Save to memory
+      chatMemoryService.addMessage(currentUser.id, sessionId, {
+        role: 'assistant',
+        content: aiResponse,
+        timestamp: Date.now(),
+      });
+
+      loadMemoryStats();
     } catch (error) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, {
+      const errorMsg = "I apologize, but I'm having trouble processing your question right now. Please try again in a moment.";
+      const errorMsgObj: ChatMessage = {
+        id: `msg-${Date.now()}-error`,
         role: 'assistant',
-        content: "I apologize, but I'm having trouble processing your question right now. Please try again in a moment.",
-        timestamp: Date.now()
-      }]);
+        content: errorMsg,
+        timestamp: Date.now(),
+      };
+      setMessages(prev => [...prev, errorMsgObj]);
+      chatMemoryService.addMessage(currentUser.id, sessionId, {
+        role: 'assistant',
+        content: errorMsg,
+        timestamp: Date.now(),
+      });
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [input, isLoading, sessionId, currentUser, result, sessionType, answers]);
 
-  const getChatResponse = async (userMessage: string) => {
-    // Create context from the session results
-    const context = createSessionContext();
-    
-    // Define the schema for chat response
+  const getChatResponse = useCallback(async (userMessage: string): Promise<string> => {
+    if (!sessionId || !currentUser) return "Session not found.";
+
+    // Build optimized prompt using chat memory
+    const prompt = chatMemoryService.buildOptimizedPrompt(
+      currentUser.id, 
+      sessionId, 
+      userMessage, 
+      result
+    );
+
     const chatSchema = {
       type: "OBJECT",
       properties: {
@@ -99,69 +175,17 @@ const ChatSession: React.FC<Props> = ({ result, answers, sessionType }) => {
       required: ["response"]
     };
 
-    const systemInstruction = `You are a compassionate counseling AI assistant. You have access to a user's counseling session results and should provide helpful, empathetic, and insightful responses to their questions. Base your responses on their session data but also provide general guidance when appropriate. Keep responses warm, supportive, and actionable. If suggesting resources or actions, make sure they are appropriate and safe.`;
-
-    const prompt = `
-Session Context:
-${context}
-
-User's Question: ${userMessage}
-
-Please provide a helpful response to the user's question based on their session results. If appropriate, you can also offer 1-2 gentle suggestions for next steps or reflection.`;
+    const systemInstruction = `You are a compassionate counseling AI assistant with memory of past conversations. You have access to a user's counseling session results and conversation history. Provide helpful, empathetic, and insightful responses. Reference past discussions when relevant. Keep responses warm, supportive, and actionable.`;
 
     try {
       const res = await aiService.generateContent<any>(prompt, chatSchema, systemInstruction);
       return res.response || "I'm here to help you explore your thoughts further. Could you tell me more about what you'd like to understand?";
     } catch (error) {
-      // Fallback response if AI fails
       return getFallbackResponse(userMessage);
     }
-  };
+  }, [sessionId, currentUser, result]);
 
-  const createSessionContext = () => {
-    const { archetype, archetypeDescription, traits, counselingAdvice, riskAssessment } = result;
-    
-    let context = `
-SESSION SUMMARY:
-- Archetype: ${archetype}
-- Description: ${archetypeDescription}
-- Risk Level: ${riskAssessment.level}
-- Key Traits:
-  • Empathy: ${traits.empathy}/100
-  • Logic: ${traits.logic}/100
-  • Integrity: ${traits.integrity}/100
-  • Ambition: ${traits.ambition}/100
-  • Resilience: ${traits.resilience}/100
-  • Social Calibration: ${traits.social_calibration}/100
-`;
-
-    // Add session-specific details
-    if (sessionType === 'medical' && result.professionalDiagnosis) {
-      context += `- Professional Diagnosis: ${result.professionalDiagnosis}\n`;
-    }
-    
-    if (sessionType === 'psychological' && result.rootCauses) {
-      context += `- Identified Root Causes: ${result.rootCauses.join(', ')}\n`;
-    }
-    
-    if (sessionType === 'relationship' && result.interpersonalStrategy) {
-      context += `- Interpersonal Strategy: ${result.interpersonalStrategy}\n`;
-    }
-    
-    if (result.counselingAdvice) {
-      context += `- Counseling Advice: ${result.counselingAdvice}\n`;
-    }
-
-    context += `
-RECENT EXCHANGES:
-${answers.slice(-3).map((a, i) => 
-  `Q${i+1}: ${a.questionText}\nA${i+1}: ${a.userResponse}`
-).join('\n\n')}`;
-
-    return context;
-  };
-
-  const getFallbackResponse = (userMessage: string) => {
+  const getFallbackResponse = (userMessage: string): string => {
     const lowerMessage = userMessage.toLowerCase();
     
     if (lowerMessage.includes('archetype') || lowerMessage.includes('result')) {
@@ -182,6 +206,13 @@ ${answers.slice(-3).map((a, i) =>
     return `That's an interesting question. Based on our session, I notice you're exploring themes around ${result.archetype.toLowerCase()} qualities. Could you tell me more about what specific aspect you'd like to explore further?`;
   };
 
+  const handleNewChat = () => {
+    if (sessionId && currentUser) {
+      chatMemoryService.clearMemory(currentUser.id, sessionId);
+      initializeChat();
+    }
+  };
+
   if (!chatInitialized) {
     return <div className="text-center py-8">Initializing chat...</div>;
   }
@@ -193,28 +224,32 @@ ${answers.slice(-3).map((a, i) =>
         <div className="flex items-center justify-between border-b pb-4">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 bg-brand-600 rounded-full flex items-center justify-center text-white text-sm font-bold">
-              �� 💬
+              💬
             </div>
             <div>
               <h3 className="text-lg font-semibold text-slate-900">Counseling Companion Chat</h3>
-              <p className="text-sm text-slate-500">Ask questions about your results</p>
+              <p className="text-sm text-slate-500">Ask questions about your results • {memoryStats.messageCount} messages • ~${memoryStats.tokenCount} tokens</p>
             </div>
           </div>
-          <button 
-            onClick={() => {
-              setMessages([]);
-              initializeChat();
-            }}
-            className="text-sm text-brand-600 hover:text-brand-700"
-          >
-            New Chat
-          </button>
+          <div className="flex items-center gap-2">
+            {memoryStats.hasSummary && (
+              <span className="px-2 py-1 bg-emerald-100 text-emerald-700 text-xs font-medium rounded-full">
+                Memory Optimized
+              </span>
+            )}
+            <button 
+              onClick={handleNewChat}
+              className="text-sm text-brand-600 hover:text-brand-700"
+            >
+              New Chat
+            </button>
+          </div>
         </div>
 
         {/* Chat Messages */}
         <div className="h-96 overflow-y-auto pr-2 mb-4 space-y-4">
           {messages.map((msg, index) => (
-            <div key={index} className={`max-w-[85%] ${msg.role === 'user' ? 'ml-auto' : 'mr-auto'} `}>
+            <div key={msg.id || index} className={`max-w-[85%] ${msg.role === 'user' ? 'ml-auto' : 'mr-auto'} `}>
               <div className={`${msg.role === 'user' ? 'bg-brand-600 text-white' : 'bg-white border border-slate-200'} rounded-xl p-3 py-2 max-w-xs `}>
                 <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 <span className="block text-xs text-slate-400 mt-1">{new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>

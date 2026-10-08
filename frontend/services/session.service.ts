@@ -1,4 +1,5 @@
 import { CounsellingSession, SessionType, Answer, AnalysisResult, Question, MCQAnswer, SessionProgress, SessionStatus, AppStep, AssessmentPhase } from '../types.ts';
+import { crossSessionAnalysis } from './crossSessionAnalysis.ts';
 
 class SessionService {
   private readonly SESSIONS_PREFIX = 'counsellingAi_sessions_';
@@ -192,6 +193,11 @@ class SessionService {
       updatedAt: new Date().toISOString(),
     };
     localStorage.setItem(this.getSessionKey(userId), JSON.stringify(sessions));
+
+    // Update cross-session analysis asynchronously
+    crossSessionAnalysis.updateUserEmbedding(userId, sessions[index]);
+    crossSessionAnalysis.generateCrossSessionInsights(userId);
+
     return sessions[index];
   }
 
