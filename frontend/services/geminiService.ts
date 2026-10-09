@@ -1,6 +1,7 @@
 
 import { Answer, AnalysisResult, Question, MCQAnswer, SessionType } from "../types.ts";
 import { KnowledgeBaseService } from "./knowledgeBaseService.ts";
+import { crossSessionAnalysis } from "./crossSessionAnalysis.ts";
 
 // --- Types & Interfaces ---
 
@@ -461,12 +462,16 @@ const getSpecializedRoleInstructions = (type: SessionType): string => {
 export const generatePhase1Questions = async (
   mcqAnswers: MCQAnswer[] | null,
   sessionType: SessionType,
-  counselorNotes: string | null = null
+  counselorNotes: string | null = null,
+  userId?: string
 ): Promise<Question[]> => {
   const role = getSpecializedRoleInstructions(sessionType);
 
   // NOTE: Awaiting database call here (Production Readiness)
   const learnedContext = await KnowledgeBaseService.getLearningContext(sessionType);
+
+  // Get cross-session enhanced context
+  const crossSessionContext = userId ? crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
 
   let contextString = counselorNotes
     ? `EXPERT NOTES:\n${counselorNotes}`
@@ -536,10 +541,20 @@ export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessi
   }
 };
 
-export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType): Promise<AnalysisResult> => {
+export const analyzeStudentAnswers = async (answers: Answer[], sessionType: SessionType, userId?: string): Promise<AnalysisResult> => {
   const role = getSpecializedRoleInstructions(sessionType);
   const formattedQA = aiService.summarizeQA(answers);
-  const prompt = `Perform a complete professional analysis. User Answers: ${formattedQA}`;
+  
+  // Get cross-session enhanced context
+  const crossSessionContext = userId ? crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
+
+  const prompt = `Perform a complete professional analysis. 
+  
+Cross-Session Context:
+${crossSessionContext}
+
+User Answers: ${formattedQA}`;
+  
   const res = await aiService.generateContent<AnalysisResult>(prompt, SCHEMAS.analysis, role, 0, 'analysis');
   if (res) res.sessionType = sessionType;
   return res || {} as AnalysisResult;

@@ -176,7 +176,7 @@ const App: React.FC = () => {
     if (notes) {
       await updateStep(AppStep.GENERATING_PHASE1);
       try {
-        const generatedQuestions = await generatePhase1Questions(null, sessionType, notes);
+        const generatedQuestions = await generatePhase1Questions(null, sessionType, notes, currentUser?.id);
         setPhase1Questions(generatedQuestions);
         await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
         // Reset assessment progress for new assessment
@@ -207,7 +207,7 @@ const App: React.FC = () => {
 
     await updateStep(AppStep.GENERATING_PHASE1);
     try {
-      const generatedQuestions = await generatePhase1Questions(answers, sessionType, null);
+      const generatedQuestions = await generatePhase1Questions(answers, sessionType, null, currentUser?.id);
       setPhase1Questions(generatedQuestions);
       await saveProgress({ phase1Questions: generatedQuestions, progress: { phase1Generated: true } });
       // Reset assessment progress for new assessment
@@ -250,7 +250,7 @@ const App: React.FC = () => {
 
     await updateStep(AppStep.ANALYZING);
     try {
-      const analysis = await analyzeStudentAnswers(answers, sessionType);
+      const analysis = await analyzeStudentAnswers(answers, sessionType, currentUser?.id);
       setResult(analysis);
 
       // Complete the session
@@ -533,7 +533,13 @@ const App: React.FC = () => {
         )}
 
         {step === AppStep.RESULTS && result && (
-          <ResultsView result={result} answers={sessionAnswers} onReset={handleReset} />
+          <ResultsView 
+            result={result} 
+            answers={sessionAnswers} 
+            onReset={handleReset}
+            sessionId={activeSessionId}
+            userId={currentUser?.id}
+          />
         )}
 
         {step === AppStep.ERROR && (
