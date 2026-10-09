@@ -184,12 +184,12 @@ class AIService {
     schemaKey?: keyof typeof COMPACT_SCHEMAS
   ): Promise<T> {
     const { apiKey, provider } = this.getActiveConfig();
-    
+
     // Use compact schema for non-Gemini providers (Gemini uses native responseSchema)
     const useCompactSchema = provider !== 'gemini';
     const compactSchema = schemaKey && COMPACT_SCHEMAS[schemaKey];
-    const jsonStructure = useCompactSchema && compactSchema 
-      ? compactSchema 
+    const jsonStructure = useCompactSchema && compactSchema
+      ? compactSchema
       : JSON.stringify(schema, null, 2);
 
     // Max tokens per task type to limit output
@@ -249,21 +249,21 @@ class AIService {
   public summarizeQA(answers: Answer[]): string {
     const full = answers.map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
     const estTokens = Math.ceil(full.length / 4); // rough estimate
-    
+
     if (estTokens <= this.MAX_CONTEXT_TOKENS) return full;
-    
+
     // Keep first 2 and last 3, summarize middle
     const keepFirst = 2;
     const keepLast = 3;
     const middle = answers.slice(keepFirst, -keepLast);
-    
+
     let result = answers.slice(0, keepFirst).map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
-    
+
     if (middle.length > 0) {
       const themes = this.extractThemes(middle);
       result += `\n[${middle.length} responses summarized: ${themes}]\n\n`;
     }
-    
+
     result += answers.slice(-keepLast).map(a => `Q: ${a.questionText}\nA: ${a.userResponse}`).join("\n\n");
     return result;
   }
@@ -474,7 +474,7 @@ export const generatePhase1Questions = async (
 
   const prompt = `
     ${learnedContext}
-    Generate 5 deep foundation questions for this ${sessionType} session based on the user's initial inputs.
+    Generate 1 deep foundation questions for this ${sessionType} session based on the user's initial inputs.
     Current Context: ${contextString}
     Return ONLY a JSON Array of objects.
   `;
@@ -515,7 +515,7 @@ export const generateRapportQuestion = async (previousAnswers: Answer[], session
 export const generateDeepDiveQuestions = async (previousAnswers: Answer[], sessionType: SessionType): Promise<Question[]> => {
   const role = getSpecializedRoleInstructions(sessionType);
   const formattedQA = aiService.summarizeQA(previousAnswers);
-  const prompt = `Generate 5 "Deep Dive" questions based on these answers. Context: ${formattedQA}`;
+  const prompt = `Generate 1 "Deep Dive" questions based on these answers. Context: ${formattedQA}`;
 
   try {
     const raw = await aiService.generateContent<any>(prompt, SCHEMAS.questions, role, 0, 'questions');
