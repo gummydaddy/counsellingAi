@@ -1,6 +1,7 @@
 # Counselling AI System - Technical Working Explanation
 
 ## System Overview
+
 Counselling AI is a full-stack web application that provides AI-powered counselling sessions across multiple domains (school, medical, psychological, career, relationship). The system combines user input with AI analysis to generate personalized insights and recommendations.
 
 ### Backend Architecture: Django Multi-Tenant Platform
@@ -10,6 +11,7 @@ The application features a comprehensive Django backend implementing multi-tenan
 #### Core Django Components
 
 **1. Custom User Model (`identity` app)**
+
 - UUID-based primary key (no sequential database IDs exposed)
 - Email as primary login identifier
 - Phone number with unique constraint and verification
@@ -17,8 +19,9 @@ The application features a comprehensive Django backend implementing multi-tenan
 - Full name and short name properties
 
 **2. Organization System (`organizations` app)**
+
 - **Organization Model**: First-class tenant with legal name, display name, slug, country, status
-- **Organization Application Workflow**: 
+- **Organization Application Workflow**:
   - Users submit applications with legal name, display name, organization type
   - Platform admin reviews and approves/rejects
   - Only approved organizations appear in selection dropdown
@@ -29,6 +32,7 @@ The application features a comprehensive Django backend implementing multi-tenan
 - **Tenant Isolation**: Every organization endpoint verifies membership before granting access
 
 **3. Subscription System (`subscriptions` app)**
+
 - **Subscription Plans**: FREE, BASIC, PRO, BUSINESS, ENTERPRISE (database-driven, not hard-coded)
   - Each plan has: monthly/yearly price, max members, max storage MB, max projects
   - Features: api_access, priority_support booleans
@@ -38,6 +42,7 @@ The application features a comprehensive Django backend implementing multi-tenan
 - **Subscription Events**: Audit log for all status changes
 
 **4. Audit System (`audit` app)**
+
 - **AuditEvent Model**: Logs all security-sensitive events
   - Actor (user), organization, event_type, target_type, target_id
   - IP address, metadata (JSON field)
@@ -48,6 +53,7 @@ The application features a comprehensive Django backend implementing multi-tenan
 - SUBSCRIPTION_CREATED, SUBSCRIPTION_CHANGED, SUBSCRIPTION_CANCELLED
 
 **5. Common Utilities (`common` app)**
+
 - Status choices constants (organization, membership, subscription)
 - Permission codenames (organization.view, member.invite, subscription.manage, etc.)
 - Helper functions for generating choice lists
@@ -55,11 +61,13 @@ The application features a comprehensive Django backend implementing multi-tenan
 #### API Endpoints
 
 **Authentication**
+
 - `POST /api/auth/token/` - JWT login with email/password
 - `POST /api/auth/token/refresh/` - Refresh JWT access token
 - `POST /api/auth/register/` - Register new user
 
 **Organizations**
+
 - `GET /api/organizations/available/` - List approved organizations for selection (never shows pending/rejected/suspended/archived)
 - `POST /api/organizations/applications/` - Create organization application (pending status)
 - `POST /api/organizations/{id}/join/` - Join approved organization (backend verifies authorization)
@@ -69,12 +77,14 @@ The application features a comprehensive Django backend implementing multi-tenan
 - `DELETE /api/organizations/{id}/members/{member_id}/` - Remove member
 
 **Subscriptions**
+
 - `GET /api/subscription-plans/` - List available subscription plans
 - `GET /api/organizations/{id}/subscription/` - Get organization subscription
 - `POST /api/organizations/{id}/subscription/change/` - Upgrade/downgrade subscription plan
 - `POST /api/organizations/{id}/subscription/cancel/` - Cancel subscription
 
 **Users**
+
 - `GET /api/users/me/` - Get current user profile
 - `PATCH /api/users/me/` - Update user profile
 - `GET /api/users/me/addresses/` - List user addresses
@@ -83,6 +93,7 @@ The application features a comprehensive Django backend implementing multi-tenan
 - `DELETE /api/users/me/addresses/{id}/` - Delete address
 
 #### Permission Classes (DRF)
+
 - `IsOrganizationMember` - Check if user is active member of organization
 - `IsOrganizationAdmin` - Check if user is admin or owner
 - `IsOrganizationOwner` - Check if user is organization owner
@@ -92,11 +103,13 @@ The application features a comprehensive Django backend implementing multi-tenan
 #### Key Workflows
 
 **1. User Registration & Login**
+
 ```text
 User → Register (email/password) → Email verified → Login → JWT token → API access
 ```
 
 **2. Organization Membership**
+
 ```text
 User → Select approved organization from dropdown → 
 Backend verifies: organization exists, status=approved, user authorized → 
@@ -104,6 +117,7 @@ Create OrganizationMembership → Assign default role
 ```
 
 **3. Organization Approval (Admin)**
+
 ```text
 Admin → Review pending application → Approve → 
 Organization created → Profile created → Owner membership created → 
@@ -111,6 +125,7 @@ FREE subscription created → Application status → approved
 ```
 
 **4. Subscription Management**
+
 ```text
 Organization → Check plan limits → Upgrade/downgrade → 
 Subscription status changes → Audit event logged → 
@@ -120,6 +135,7 @@ Feature limits enforced (members, storage, projects)
 ## Complete System Flow
 
 ### Phase 1: Authentication & Onboarding
+
 1. Application loads and checks authentication status
 2. If not authenticated, shows login interface
 3. If authenticated, user can browse approved organizations
@@ -127,18 +143,21 @@ Feature limits enforced (members, storage, projects)
 5. Organization membership created with default role
 
 ### Phase 2: Session Management
+
 1. User creates/counselling sessions
 2. Sessions stored with type (school/medical/psychological/career/relationship)
 3. AI analysis generated based on session type
 4. Results presented to user
 
 ### Phase 3: Organization & Subscription Management
+
 1. Admin reviews organization applications
 2. Approved organizations receive FREE subscription
 3. Admins can upgrade/downgrade subscription plans
 4. Feature limits enforced based on plan (members, storage, projects)
 
 ### Phase 4: AI-Powered Analysis
+
 1. User completes counselling assessment
 2. AI service generates personalized insights
 3. Results stored with archetype, risk assessment, trait scores
@@ -147,12 +166,14 @@ Feature limits enforced (members, storage, projects)
 ## Technical Implementation Details
 
 ### State Management
+
 - Django ORM for persistent state
 - JWT tokens for authentication state
 - Session framework for user sessions
 - Audit events for security tracking
 
 ### AI Integration
+
 - Abstracted AIService class supports multiple providers
 - Automatic API key detection from environment variables
 - Provider-specific handling for response formatting
@@ -161,12 +182,14 @@ Feature limits enforced (members, storage, projects)
 - Specialized role prompting for domain-specific expertise
 
 ### Data Persistence
+
 - PostgreSQL (production) or SQLite (development) as authoritative source
 - Redis for rate limiting and temporary state
 - Audit events logged to database
 - Session data managed through Django session framework
 
 ### UI/UX Features
+
 - Responsive design with collapsible sidebar
 - Animated loading states during AI processing
 - Error handling with user-friendly messages
@@ -177,6 +200,7 @@ Feature limits enforced (members, storage, projects)
 ## Production Considerations
 
 ### Security
+
 - Rate-limiting on authentication endpoints
 - Password reset with generic "if account exists" messages
 - Never expose whether email exists through responses
@@ -184,12 +208,14 @@ Feature limits enforced (members, storage, projects)
 - Never trust client-provided organization IDs
 
 ### Scalability
+
 - PostgreSQL as authoritative source
 - Redis for caching and rate limiting
 - Database-constrained integrity (UNIQUE on email/phone, slug, etc.)
 - Services layer separates business logic from views
 
 ### Extensibility
+
 - SSO/SAML/OIDC support planned
 - Multiple billing providers (Stripe, Razorpay, etc.)
 - Additional session types can be added
@@ -218,6 +244,7 @@ python manage.py runserver
 ## Design Rules Compliance
 
 The implementation strictly follows the 50 design rules including:
+
 - One user = one global identity (RULE 1)
 - User may belong to multiple organizations (RULE 2)
 - Organization is a tenant (RULE 3)
@@ -238,3 +265,34 @@ The implementation strictly follows the 50 design rules including:
 - Never trust client-supplied IDs (RULE 18)
 - Never expose sensitive serializer fields (RULE 19)
 - All security endpoints need explicit permissions (RULE 20)
+
+1. Download Report Button (ResultsView.tsx)
+Added "Download Report" button in header
+Generates comprehensive text report with all session data (archetype, risk, traits, specialized fields, action plans)
+Filename includes session type, archetype, and timestamp
+2. Cross-Session Analysis Service (services/crossSessionAnalysis.ts)
+User Embeddings: Vector representation of user's trait profile (6-dim: empathy, logic, integrity, ambition, resilience, social_calibration)
+Session Relations: Finds similar sessions using cosine similarity (>70% threshold)
+Cross-Session Insights (4 types):
+Pattern: Consistent archetype across sessions
+Trend: Increasing/declining risk levels or trait changes
+Correlation: Multi-domain insights
+Risk: Escalating risk warnings
+Enhanced AI Context: getEnhancedContext() provides user history for question generation and analysis
+3. Chat Memory Service (services/chatMemoryService.ts)
+Token Optimization: Auto-summarizes old messages when >2000 tokens
+Compressed Context: Builds optimized prompts with summary + key topics + recent messages only
+Persistent Memory: Survives browser refresh, loads on chat initialization
+Memory Stats: Shows message count, token count, optimization status
+4. Updated AI Generation (services/geminiService.ts)
+generatePhase1Questions() - Now accepts userId for cross-session context
+analyzeStudentAnswers() - Uses user's history for personalized analysis
+5. SessionDetailView Enhancements (SessionDetailView.tsx)
+New "Insights" tab showing:
+Cross-session insights with confidence scores and actionable advice
+Related sessions with similarity percentages and shared traits/patterns
+Loading states and empty state guidance
+6. Integration Points
+App.tsx passes userId to AI functions
+sessionService.completeSession() triggers cross-session analysis update
+ResultsView passes sessionId to ChatSession for memory initialization
