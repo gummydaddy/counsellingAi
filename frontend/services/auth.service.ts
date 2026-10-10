@@ -4,115 +4,146 @@ export interface User {
   name: string;
   role: 'user' | 'admin';
   createdAt: string;
+  firstName?: string;
+  lastName?: string;
 }
 
-class AuthService {
-  // Default super admin credentials
-  private readonly SUPER_ADMIN = {
-    id: 'super-admin',
-    email: 'admin@counsellingai.com',
-    password: 'CounsellingAI@2024',
-    name: 'System Administrator',
-    role: 'admin' as const,
-    createdAt: new Date('2024-01-01').toISOString()
-  };
+export interface AuthResponse {
+  success: boolean;
+  message: string;
+  user?: User;
+  access?: string;
+  refresh?: string;
+}
 
-  private readonly USERS_KEY = 'counsellingAi_users';
-  private readonly PASSWORDS_KEY = 'counsellingAi_passwords';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
+
+class AuthService {
   private readonly CURRENT_USER_KEY = 'counsellingAi_currentUser';
+  private readonly ACCESS_TOKEN_KEY = 'counsellingAi_accessToken';
+  private readonly REFRESH_TOKEN_KEY = 'counsellingAi_refreshToken';
+
+  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    const url = `${API_BASE_URL}${endpoint}`;
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      ...(options.headers as Record<string, string> || {}),
+    };
+
+    const accessToken = this.getAccessToken();
+    if (accessToken) {
+      headers['Authorization'] = `Bearer ${accessToken}`;
+    }
+
+    const response = await fetch(url, {
+      ...options,
+      headers,
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || data.message || 'Request failed');
+    }
+
+    return data;
+  }
+
+  getAccessToken(): string | null {
+    return localStorage.getItem(this.ACCESS_TOKEN_KEY);
+  }
+
+  getRefreshToken(): string | null {
+    return localStorage.getItem(this.REFRESH_TOKEN_KEY);
+  }
+
+  private setTokens(access: string, refresh: string): void {
+    localStorage.setItem(this.ACCESS_TOKEN_KEY, access);
+    localStorage.setItem(this.REFRESH_TOKEN_KEY, refresh);
+  }
+
+  private clearTokens(): void {
+    localStorage.removeItem(this.ACCESS_TOKEN_KEY);
+    localStorage.removeItem(this.REFRESH_TOKEN_KEY);
+  }
 
   /**
    * Register a new user
    */
-  signup(email: string, password: string, name: string): { success: boolean; message: string; user?: User } {
-    // Validate inputs
-    if (!email || !password || !name) {
-      return { success: false, message: 'All fields are required' };
+  async signup(email: string, password: string, name: string): Promise<AuthResponse> {
+    // Split name into first and last name
+    const nameParts = name.trim().split(' ');
+    const first_name = nameParts[0] || '';
+    const last_name = nameParts.slice(1).join(' ') || '';
+
+    try {
+      const data = await this.request<AuthResponse>('/auth/users/register/', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: email.toLowerCase(),
+          password,
+          first_name,
+          last_name,
+        }),
+      });
+
+      if (data.access && data.refresh) {
+        this.setTokens(data.access, data.refresh);
+      }
+
+      if (data.user) {
+        this.setCurrentUser(this.mapDjangoUser(data.user));
+      }
+
+      return { success: true, message: 'Account created successfully', user: this.getCurrentUser()! };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Registration failed';
+      return { success: false, message };
     }
-    
-    if (!this.isValidEmail(email)) {
-      return { success: false, message: 'Invalid email format' };
-    }
-    
-    if (password.length < 8) {
-      return { success: false, message: 'Password must be at least 8 characters' };
-    }
-    
-    // Check if super admin email
-    if (email.toLowerCase() === this.SUPER_ADMIN.email.toLowerCase()) {
-      return { success: false, message: 'This email is reserved for system administrator' };
-    }
-    
-    // Check if user already exists
-    const users = this.getUsers();
-    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
-      return { success: false, message: 'User with this email already exists' };
-    }
-    
-    // Create new user
-    const newUser: User = {
-      id: this.generateUserId(),
-      email: email.toLowerCase(),
-      name,
-      role: 'user',
-      createdAt: new Date().toISOString()
-    };
-    
-    // Save user
-    users.push(newUser);
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
-    
-    // Hash and save password
-    const passwords = this.getPasswords();
-    passwords[newUser.id] = this.simpleHash(password);
-    localStorage.setItem(this.PASSWORDS_KEY, JSON.stringify(passwords));
-    
-    // Auto-login
-    this.setCurrentUser(newUser);
-    
-    return { success: true, message: 'Account created successfully', user: newUser };
   }
 
   /**
    * Login user
    */
-  login(email: string, password: string): { success: boolean; message: string; user?: User } {
-    const emailLower = email.toLowerCase();
-    
-    // Check super admin
-    if (emailLower === this.SUPER_ADMIN.email.toLowerCase()) {
-      if (password === this.SUPER_ADMIN.password) {
-        this.setCurrentUser(this.SUPER_ADMIN);
-        return { success: true, message: 'Login successful', user: this.SUPER_ADMIN };
-      } else {
-        return { success: false, message: 'Incorrect password' };
+  async login(email: string, password: string): Promise<AuthResponse> {
+    try {
+      const data = await this.request<{ access: string; refresh: string; user: User }>('/auth/token/', {
+        method: 'POST',
+        body: JSON.stringify({
+          email: email.toLowerCase(),
+          password,
+        }),
+      });
+
+      if (data.access && data.refresh) {
+        this.setTokens(data.access, data.refresh);
       }
+
+      if (data.user) {
+        this.setCurrentUser(this.mapDjangoUser(data.user));
+      }
+
+      return { success: true, message: 'Login successful', user: this.getCurrentUser()!, access: data.access, refresh: data.refresh };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Login failed';
+      return { success: false, message };
     }
-    
-    // Regular users
-    const users = this.getUsers();
-    const user = users.find(u => u.email.toLowerCase() === emailLower);
-    
-    if (!user) {
-      return { success: false, message: 'User not found. Please sign up first.' };
-    }
-    
-    const passwords = this.getPasswords();
-    const storedHash = passwords[user.id];
-    
-    if (!storedHash || storedHash !== this.simpleHash(password)) {
-      return { success: false, message: 'Incorrect password' };
-    }
-    
-    this.setCurrentUser(user);
-    return { success: true, message: 'Login successful', user };
   }
 
   /**
    * Logout
    */
-  logout(): void {
-    localStorage.removeItem(this.CURRENT_USER_KEY);
+  async logout(): Promise<void> {
+    try {
+      await this.request('/auth/users/logout/', {
+        method: 'POST',
+      });
+    } catch {
+      // Ignore logout errors
+    } finally {
+      this.clearTokens();
+      localStorage.removeItem(this.CURRENT_USER_KEY);
+    }
   }
 
   /**
@@ -139,7 +170,7 @@ class AuthService {
    * Check if authenticated
    */
   isAuthenticated(): boolean {
-    return this.getCurrentUser() !== null;
+    return this.getCurrentUser() !== null && this.getAccessToken() !== null;
   }
 
   /**
@@ -151,160 +182,83 @@ class AuthService {
   }
 
   /**
+   * Refresh access token
+   */
+  async refreshAccessToken(): Promise<boolean> {
+    const refreshToken = this.getRefreshToken();
+    if (!refreshToken) return false;
+
+    try {
+      const data = await this.request<{ access: string }>('/auth/token/refresh/', {
+        method: 'POST',
+        body: JSON.stringify({ refresh: refreshToken }),
+      });
+
+      if (data.access) {
+        localStorage.setItem(this.ACCESS_TOKEN_KEY, data.access);
+        return true;
+      }
+      return false;
+    } catch {
+      this.clearTokens();
+      localStorage.removeItem(this.CURRENT_USER_KEY);
+      return false;
+    }
+  }
+
+  /**
    * Change password
    */
-  changePassword(oldPassword: string, newPassword: string): { success: boolean; message: string } {
-    const currentUser = this.getCurrentUser();
-    
-    if (!currentUser) {
-      return { success: false, message: 'Not authenticated' };
+  async changePassword(oldPassword: string, newPassword: string): Promise<AuthResponse> {
+    try {
+      await this.request('/auth/users/change_password/', {
+        method: 'POST',
+        body: JSON.stringify({
+          old_password: oldPassword,
+          new_password: newPassword,
+        }),
+      });
+      return { success: true, message: 'Password changed successfully' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to change password';
+      return { success: false, message };
     }
-    
-    if (newPassword.length < 8) {
-      return { success: false, message: 'New password must be at least 8 characters' };
-    }
-    
-    if (currentUser.id === 'super-admin') {
-      return { success: false, message: 'Super admin password cannot be changed' };
-    }
-    
-    const passwords = this.getPasswords();
-    const storedHash = passwords[currentUser.id];
-    
-    if (!storedHash || storedHash !== this.simpleHash(oldPassword)) {
-      return { success: false, message: 'Incorrect current password' };
-    }
-    
-    passwords[currentUser.id] = this.simpleHash(newPassword);
-    localStorage.setItem(this.PASSWORDS_KEY, JSON.stringify(passwords));
-    
-    return { success: true, message: 'Password changed successfully' };
   }
 
   /**
-   * Delete own account
+   * Delete account
    */
-  deleteAccount(password: string): { success: boolean; message: string } {
-    const currentUser = this.getCurrentUser();
-    
-    if (!currentUser) {
-      return { success: false, message: 'Not authenticated' };
+  async deleteAccount(password: string): Promise<AuthResponse> {
+    try {
+      await this.request('/auth/users/me/', {
+        method: 'DELETE',
+        body: JSON.stringify({ password }),
+      });
+      this.logout();
+      return { success: true, message: 'Account deleted successfully' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete account';
+      return { success: false, message };
     }
-    
-    if (currentUser.role === 'admin' && currentUser.id === 'super-admin') {
-      return { success: false, message: 'Admin account cannot be deleted' };
-    }
-    
-    const passwords = this.getPasswords();
-    const storedHash = passwords[currentUser.id];
-    
-    if (!storedHash || storedHash !== this.simpleHash(password)) {
-      return { success: false, message: 'Incorrect password' };
-    }
-    
-    const users = this.getUsers();
-    const updatedUsers = users.filter(u => u.id !== currentUser.id);
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(updatedUsers));
-    
-    delete passwords[currentUser.id];
-    localStorage.setItem(this.PASSWORDS_KEY, JSON.stringify(passwords));
-    
-    this.logout();
-    return { success: true, message: 'Account deleted successfully' };
   }
 
   /**
-   * Get all users
+   * Map Django user to frontend User type
    */
-  getAllUsers(): User[] {
-    return this.getUsers();
-  }
-
-  /**
-   * Create admin user
-   */
-  createAdminUser(name: string, email: string, password: string): { success: boolean; error?: string } {
-    const users = this.getAllUsers();
-  
-    if (users.find(u => u.email === email)) {
-      return { success: false, error: 'User already exists' };
-    }
-
-    const newUser: User = {
-      id: this.generateUserId(),
-      name,
-      email: email.toLowerCase(),
-      role: 'admin',
-      createdAt: new Date().toISOString()
+  private mapDjangoUser(djangoUser: Record<string, unknown>): User {
+    return {
+      id: djangoUser.id as string,
+      email: djangoUser.email as string,
+      name: djangoUser.first_name && djangoUser.last_name
+        ? `${djangoUser.first_name} ${djangoUser.last_name}`.trim()
+        : djangoUser.email as string,
+      firstName: djangoUser.first_name as string,
+      lastName: djangoUser.last_name as string,
+      role: djangoUser.is_superuser || djangoUser.is_staff ? 'admin' : 'user',
+      createdAt: djangoUser.created_at as string,
     };
-
-    users.push(newUser);
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
-
-    const passwords = this.getPasswords();
-    passwords[newUser.id] = this.simpleHash(password);
-    localStorage.setItem(this.PASSWORDS_KEY, JSON.stringify(passwords));
-
-    return { success: true };
-  }
-
-  /**
-   * Delete user by ID (admin only)
-   */
-  deleteUser(userId: string): void {
-    const users = this.getUsers();
-    const updatedUsers = users.filter(u => u.id !== userId);
-    localStorage.setItem(this.USERS_KEY, JSON.stringify(updatedUsers));
-
-    const passwords = this.getPasswords();
-    delete passwords[userId];
-    localStorage.setItem(this.PASSWORDS_KEY, JSON.stringify(passwords));
-  }
-
-  private getUsers(): User[] {
-    const usersStr = localStorage.getItem(this.USERS_KEY);
-    if (!usersStr) return [];
-  
-    try {
-      return JSON.parse(usersStr) as User[];
-    } catch (e) {
-      console.error('Failed to parse users', e);
-      return [];
-    }
-  }
-
-  private getPasswords(): { [userId: string]: string } {
-    const passwordsStr = localStorage.getItem(this.PASSWORDS_KEY);
-    if (!passwordsStr) return {};
-    
-    try {
-      return JSON.parse(passwordsStr);
-    } catch (e) {
-      console.error('Failed to parse passwords', e);
-      return {};
-    }
-  }
-
-  private isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  }
-
-  private generateUserId(): string {
-    return 'user-' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
-  }
-
-  private simpleHash(str: string): string {
-    let hash = 0;
-    for (let i = 0; i < str.length; i++) {
-      const char = str.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return hash.toString(36);
   }
 }
 
 // Singleton export (matches project pattern)
 export const authService = new AuthService();
-

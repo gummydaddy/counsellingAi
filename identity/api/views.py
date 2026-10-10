@@ -10,7 +10,7 @@ from identity.models import User, UserProfile, UserSession, LoginEvent
 from common.models import Address
 from .serializers import (
     UserSerializer, UserProfileSerializer, AddressSerializer,
-    LoginEventSerializer, UserSessionSerializer
+    LoginEventSerializer, UserSessionSerializer, RegisterSerializer
 )
 
 
@@ -30,7 +30,7 @@ class UserViewSet(viewsets.ModelViewSet):
         from identity.services import RegistrationService
         from django.http import HttpRequest
 
-        serializer = self.get_serializer(data=request.data)
+        serializer = RegisterSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
         user = RegistrationService.register_user(
@@ -38,6 +38,7 @@ class UserViewSet(viewsets.ModelViewSet):
             phone_number=serializer.validated_data.get("phone_number"),
             first_name=serializer.validated_data["first_name"],
             last_name=serializer.validated_data["last_name"],
+            password=serializer.validated_data["password"],
         )
 
         # Log registration event
