@@ -15,7 +15,7 @@ const LoginComponent: React.FC = () => {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const result = authService.login(email, password);
+    const result = await authService.login(email, password);
     setIsLoading(false);
 
     if (result.success) {

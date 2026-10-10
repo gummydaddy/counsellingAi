@@ -26,7 +26,7 @@ const SignupComponent: React.FC = () => {
     // Simulate network delay
     await new Promise(resolve => setTimeout(resolve, 300));
 
-    const result = authService.signup(email, password, name);
+    const result = await authService.signup(email, password, name);
     
     setIsLoading(false);
 
