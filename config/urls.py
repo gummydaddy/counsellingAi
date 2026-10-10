@@ -7,8 +7,15 @@ The `urlpatterns` list routes URLs to views. For more information please see:
 
 from django.contrib import admin
 from django.urls import path, include
+from django.shortcuts import redirect
+
+
+def redirect_to_frontend(request):
+    return redirect("https://test.counsel.socyfie.com")
+
 
 urlpatterns = [
+    path('', redirect_to_frontend, name='home'),
     path('admin/', admin.site.urls),
     path('api/auth/', include('identity.api.urls')),
     path('api/organizations/', include('organizations.api.urls')),
