@@ -31,6 +31,12 @@ class RegisterSerializer(serializers.ModelSerializer):
             "phone_number": {"required": False, "allow_blank": True, "allow_null": True},
         }
 
+    def validate_phone_number(self, value):
+        """Convert empty string to None to avoid unique constraint violation."""
+        if value == "":
+            return None
+        return value
+
 
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for UserProfile model."""
