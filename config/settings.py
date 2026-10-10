@@ -215,11 +215,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
+    "https://test.counsel.socyfie.com",  # Production frontend
 ]
 
 # Add FRONTEND_URL from environment variable for production deployments
-FRONTEND_URL = os.environ.get('FRONTEND_URL')
-if FRONTEND_URL:
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://test.counsel.socyfie.com')
+if FRONTEND_URL and FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
     CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
 
 CORS_ALLOW_CREDENTIALS = True
@@ -237,8 +238,9 @@ else:
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://test.counsel.socyfie.com",  # Production frontend
 ]
-if FRONTEND_URL:
+if FRONTEND_URL and FRONTEND_URL not in CSRF_TRUSTED_ORIGINS:
     CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
 if not DEBUG:
     VERCEL_ORIGIN = os.environ.get('VERCEL_ORIGIN')
