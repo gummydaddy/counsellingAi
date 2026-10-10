@@ -560,3 +560,10 @@ error: failed-wheel-build-for-install
 
 × Failed to build installable wheels for some pyproject.toml based projects
 ╰─> psycopg2-binary
+nohup: ./startapp.: No such file or directory
+[1;33m⚠[0m No .env file found, using defaults
+[0;34m═══════════════════════════════════════[0m
+[0;34m   MindPath Django Setup[0m
+[0;34m═══════════════════════════════════════[0m
+[0;31m✗[0m Virtual environment not found at /Users/vaibhav/Desktop/counsellingAi/.venv
+Run: python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt

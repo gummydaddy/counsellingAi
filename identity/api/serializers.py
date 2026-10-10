@@ -20,12 +20,16 @@ class UserSerializer(serializers.ModelSerializer):
 class RegisterSerializer(serializers.ModelSerializer):
     """Serializer for user registration."""
     password = serializers.CharField(write_only=True, min_length=8)
+    phone_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class Meta:
         model = User
         fields = [
             "email", "phone_number", "first_name", "last_name", "password",
         ]
+        extra_kwargs = {
+            "phone_number": {"required": False, "allow_blank": True, "allow_null": True},
+        }
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
