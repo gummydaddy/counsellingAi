@@ -27,7 +27,7 @@ const SignupComponent: React.FC = () => {
     await new Promise(resolve => setTimeout(resolve, 300));
 
     const result = await authService.signup(email, password, name);
-    
+
     setIsLoading(false);
 
     if (result.success) {
@@ -64,12 +64,11 @@ const SignupComponent: React.FC = () => {
         </p>
 
         {message && (
-          <div 
-            className={`mb-4 sm:mb-6 p-3 border text-sm rounded ${
-              messageType === 'error'
+          <div
+            className={`mb-4 sm:mb-6 p-3 border text-sm rounded ${messageType === 'error'
                 ? 'border-red-500 bg-red-900/20 text-red-300'
                 : 'border-green-500 bg-green-900/20 text-green-300'
-            }`}
+              }`}
           >
             {message}
           </div>
@@ -78,8 +77,8 @@ const SignupComponent: React.FC = () => {
         <form onSubmit={onSubmit} className="space-y-6">
           <div>
             <label className="block text-sm text-gray-300 mb-2">Full Name</label>
-            <input 
-              type="text" 
+            <input
+              type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               name="name"
@@ -91,8 +90,8 @@ const SignupComponent: React.FC = () => {
 
           <div>
             <label className="block text-sm text-gray-300 mb-2">Email</label>
-            <input 
-              type="email" 
+            <input
+              type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               name="email"
@@ -104,8 +103,8 @@ const SignupComponent: React.FC = () => {
 
           <div>
             <label className="block text-sm text-gray-300 mb-2">Password</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               name="password"
@@ -119,8 +118,8 @@ const SignupComponent: React.FC = () => {
 
           <div>
             <label className="block text-sm text-gray-300 mb-2">Confirm Password</label>
-            <input 
-              type="password" 
+            <input
+              type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               name="confirmPassword"
@@ -130,8 +129,8 @@ const SignupComponent: React.FC = () => {
             />
           </div>
 
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={isLoading}
             className="w-full bg-[#D32F2F] text-white py-3 font-bold text-base sm:text-lg hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[48px]"
           >
@@ -140,16 +139,16 @@ const SignupComponent: React.FC = () => {
         </form>
 
         <div className="mt-6 text-center space-y-3">
-          <button 
+          <button
             type="button"
-            onClick={goToLogin} 
+            onClick={goToLogin}
             className="text-gray-500 hover:text-white underline text-sm block w-full py-2 min-h-[44px]"
           >
             Already have an account? Login
           </button>
-          <button 
+          <button
             type="button"
-            onClick={goToLanding} 
+            onClick={goToLanding}
             className="text-gray-500 hover:text-white underline text-sm block w-full py-2 min-h-[44px]"
           >
             ← Back to Home

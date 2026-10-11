@@ -23,20 +23,23 @@ class AuthService {
   private readonly ACCESS_TOKEN_KEY = 'counsellingAi_accessToken';
   private readonly REFRESH_TOKEN_KEY = 'counsellingAi_refreshToken';
 
-  private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+  private async request<T>(endpoint: string, options: RequestInit & { skipAuth?: boolean } = {}): Promise<T> {
+    const { skipAuth, headers: customHeaders, ...fetchOptions } = options;
     const url = `${API_BASE_URL}${endpoint}`;
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string> || {}),
+      ...(customHeaders as Record<string, string> || {}),
     };
 
-    const accessToken = this.getAccessToken();
-    if (accessToken) {
-      headers['Authorization'] = `Bearer ${accessToken}`;
+    if (!skipAuth) {
+      const accessToken = this.getAccessToken();
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
     }
 
     const response = await fetch(url, {
-      ...options,
+      ...fetchOptions,
       headers,
     });
 
@@ -79,6 +82,7 @@ class AuthService {
     try {
       const data = await this.request<AuthResponse>('/auth/users/register/', {
         method: 'POST',
+        skipAuth: true,
         body: JSON.stringify({
           email: email.toLowerCase(),
           password,
@@ -109,6 +113,7 @@ class AuthService {
     try {
       const data = await this.request<{ access: string; refresh: string; user: User }>('/auth/token/', {
         method: 'POST',
+        skipAuth: true,
         body: JSON.stringify({
           email: email.toLowerCase(),
           password,
@@ -191,6 +196,7 @@ class AuthService {
     try {
       const data = await this.request<{ access: string }>('/auth/token/refresh/', {
         method: 'POST',
+        skipAuth: true,
         body: JSON.stringify({ refresh: refreshToken }),
       });
 
