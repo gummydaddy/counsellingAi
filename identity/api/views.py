@@ -53,6 +53,16 @@ class UserViewSet(viewsets.ModelViewSet):
             status=status.HTTP_201_CREATED
         )
 
+    @action(detail=False, methods=["get"], url_path="me")
+    def me(self, request):
+        """Get current authenticated user."""
+        if request.user.is_authenticated:
+            return Response(UserSerializer(request.user).data)
+        return Response(
+            {"detail": "Not authenticated"},
+            status=status.HTTP_401_UNAUTHORIZED
+        )
+
     @action(detail=False, methods=["post"], url_path="login")
     def login(self, request):
         """Login a user."""

@@ -95,8 +95,13 @@ class AuthService {
         this.setTokens(data.access, data.refresh);
       }
 
-      if (data.user) {
-        this.setCurrentUser(this.mapDjangoUser(data.user));
+      // Fetch current user using the access token
+      const userData = await this.request<User>('/auth/users/me/', {
+        method: 'GET',
+      });
+
+      if (userData) {
+        this.setCurrentUser(this.mapDjangoUser(userData));
       }
 
       return { success: true, message: 'Account created successfully', user: this.getCurrentUser()! };
@@ -111,7 +116,7 @@ class AuthService {
    */
   async login(email: string, password: string): Promise<AuthResponse> {
     try {
-      const data = await this.request<{ access: string; refresh: string; user: User }>('/auth/token/', {
+      const data = await this.request<{ access: string; refresh: string }>('/auth/token/', {
         method: 'POST',
         skipAuth: true,
         body: JSON.stringify({
@@ -124,8 +129,13 @@ class AuthService {
         this.setTokens(data.access, data.refresh);
       }
 
-      if (data.user) {
-        this.setCurrentUser(this.mapDjangoUser(data.user));
+      // Fetch current user using the access token
+      const userData = await this.request<User>('/auth/users/me/', {
+        method: 'GET',
+      });
+
+      if (userData) {
+        this.setCurrentUser(this.mapDjangoUser(userData));
       }
 
       return { success: true, message: 'Login successful', user: this.getCurrentUser()!, access: data.access, refresh: data.refresh };
