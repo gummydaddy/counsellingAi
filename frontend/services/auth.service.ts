@@ -95,9 +95,12 @@ class AuthService {
         this.setTokens(data.access, data.refresh);
       }
 
-      // Fetch current user using the access token
+      // Fetch current user using the NEW access token
       const userData = await this.request<User>('/auth/users/me/', {
         method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${data.access}`,
+        },
       });
 
       if (userData) {
@@ -129,9 +132,12 @@ class AuthService {
         this.setTokens(data.access, data.refresh);
       }
 
-      // Fetch current user using the access token
+      // Fetch current user using the NEW access token
       const userData = await this.request<User>('/auth/users/me/', {
         method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${data.access}`,
+        },
       });
 
       if (userData) {
