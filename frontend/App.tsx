@@ -64,7 +64,13 @@ const App: React.FC = () => {
   const checkAuth = useCallback(() => {
     const user = authService.getCurrentUser();
     const authStatus = !!user;
-    setCurrentUser(user);
+    // Only update state if user actually changed to prevent infinite re-renders
+    setCurrentUser(prev => {
+      const prevId = prev?.id;
+      const newId = user?.id;
+      if (prevId === newId) return prev;
+      return user;
+    });
     setIsAuthenticated(authStatus);
   }, []);
 

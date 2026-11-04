@@ -12,7 +12,7 @@ const STORAGE_KEY = 'mindpath_global_knowledge';
 // Development: '/api' (proxied to localhost:8000) - insights at '/api/common/insights/'
 // Production (Vercel): 'https://your-backend.onrender.com/api' - insights at '/api/common/insights/'
 const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000/api';
-const INSIGHTS_API_BASE = `${API_BASE}/common/`;
+const INSIGHTS_API_BASE = `${API_BASE}/common`;
 
 export interface ClinicalInsight {
   id?: string;
