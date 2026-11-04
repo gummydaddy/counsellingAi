@@ -5,6 +5,45 @@ import { crossSessionAnalysis } from './crossSessionAnalysis.ts';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 const SESSIONS_API_BASE = `${API_BASE_URL}/common/sessions`;
 
+async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const token = authService.getAccessToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> || {}),
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(url, { ...options, headers });
+
+  // Handle 401 - try to refresh token once
+  if (response.status === 401) {
+    const refreshed = await authService.refreshAccessToken();
+    if (refreshed) {
+      // Retry with new token
+      const newToken = authService.getAccessToken();
+      headers['Authorization'] = `Bearer ${newToken}`;
+      const retryResponse = await fetch(url, { ...options, headers });
+      if (!retryResponse.ok) {
+        throw new Error(`API error: ${retryResponse.status}`);
+      }
+      return retryResponse.json();
+    } else {
+      // Token refresh failed - clear auth and redirect to login
+      authService.logout();
+      window.location.href = '/';
+      throw new Error('Authentication expired');
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(`API error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 interface SessionListResponse {
   id: string;
   session_type: SessionType;
@@ -40,13 +79,6 @@ interface SessionDetailResponse {
 }
 
 class SessionService {
-  private getAuthHeaders(): Record<string, string> {
-    const token = authService.getAccessToken();
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-    };
-  }
 
   private mapSessionDetail(data: SessionDetailResponse): CounsellingSession {
     return {
@@ -108,12 +140,8 @@ class SessionService {
 
   async getSessions(userId: string): Promise<CounsellingSession[]> {
     try {
-      const response = await fetch(SESSIONS_API_BASE, {
-        headers: this.getAuthHeaders(),
-      });
-      if (!response.ok) throw new Error('Failed to fetch sessions');
-      const data = await response.json();
-      const sessions = (data.results || data).map((item: SessionListResponse) => this.mapSessionList(item));
+      const data = await apiRequest<{ results: SessionListResponse[] }>(SESSIONS_API_BASE);
+      const sessions = (data.results || []).map((item: SessionListResponse) => this.mapSessionList(item));
       return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     } catch (error) {
       console.warn('Failed to fetch sessions from API, falling back to localStorage:', error);
@@ -123,14 +151,7 @@ class SessionService {
 
   async getSession(userId: string, sessionId: string): Promise<CounsellingSession | null> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/`, {
-        headers: this.getAuthHeaders(),
-      });
-      if (!response.ok) {
-        if (response.status === 404) return null;
-        throw new Error('Failed to fetch session');
-      }
-      const data = await response.json();
+      const data = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/${sessionId}/`);
       return this.mapSessionDetail(data);
     } catch (error) {
       console.warn('Failed to fetch session from API, falling back to localStorage:', error);
@@ -145,17 +166,14 @@ class SessionService {
   ): Promise<CounsellingSession> {
     try {
       const title = this.generateTitle(sessionType, null, null);
-      const response = await fetch(SESSIONS_API_BASE, {
+      const data = await apiRequest<SessionDetailResponse>(SESSIONS_API_BASE, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
         body: JSON.stringify({
           session_type: sessionType,
           title,
           counselor_notes: counselorNotes,
         }),
       });
-      if (!response.ok) throw new Error('Failed to create session');
-      const data = await response.json();
       return this.mapSessionDetail(data);
     } catch (error) {
       console.warn('Failed to create session via API, using localStorage:', error);
@@ -165,13 +183,10 @@ class SessionService {
 
   async updateSessionProgress(userId: string, sessionId: string, progressUpdates: Partial<SessionProgress>): Promise<CounsellingSession | null> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/`, {
+      const data = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/${sessionId}/`, {
         method: 'PATCH',
-        headers: this.getAuthHeaders(),
         body: JSON.stringify(this.mapProgressToBackend(progressUpdates)),
       });
-      if (!response.ok) throw new Error('Failed to update session progress');
-      const data = await response.json();
       return this.mapSessionDetail(data);
     } catch (error) {
       console.warn('Failed to update session progress via API, using localStorage:', error);
@@ -189,13 +204,10 @@ class SessionService {
     data: Partial<Pick<CounsellingSession, 'counselorNotes' | 'phase1Questions' | 'mcqAnswers' | 'assessmentAnswers' | 'result' | 'status' | 'title'>>
   ): Promise<CounsellingSession | null> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/`, {
+      const responseData = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/${sessionId}/`, {
         method: 'PATCH',
-        headers: this.getAuthHeaders(),
         body: JSON.stringify(this.mapDataToBackend(data)),
       });
-      if (!response.ok) throw new Error('Failed to update session data');
-      const responseData = await response.json();
       return this.mapSessionDetail(responseData);
     } catch (error) {
       console.warn('Failed to update session data via API, using localStorage:', error);
@@ -213,13 +225,10 @@ class SessionService {
 
   async retryFromStep(userId: string, sessionId: string, step: AppStep): Promise<CounsellingSession | null> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/retry/`, {
+      const data = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/${sessionId}/retry/`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
         body: JSON.stringify({ step }),
       });
-      if (!response.ok) throw new Error('Failed to retry session');
-      const data = await response.json();
       return this.mapSessionDetail(data);
     } catch (error) {
       console.warn('Failed to retry session via API, using localStorage:', error);
@@ -229,13 +238,10 @@ class SessionService {
 
   async completeSession(userId: string, sessionId: string, result: AnalysisResult): Promise<CounsellingSession | null> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/complete/`, {
+      const data = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/${sessionId}/complete/`, {
         method: 'POST',
-        headers: this.getAuthHeaders(),
         body: JSON.stringify({ result }),
       });
-      if (!response.ok) throw new Error('Failed to complete session');
-      const data = await response.json();
       const session = this.mapSessionDetail(data);
 
       // Update cross-session analysis asynchronously
@@ -251,11 +257,10 @@ class SessionService {
 
   async deleteSession(userId: string, sessionId: string): Promise<boolean> {
     try {
-      const response = await fetch(`${SESSIONS_API_BASE}/${sessionId}/`, {
+      await apiRequest(`${SESSIONS_API_BASE}/${sessionId}/`, {
         method: 'DELETE',
-        headers: this.getAuthHeaders(),
       });
-      return response.ok;
+      return true;
     } catch (error) {
       console.warn('Failed to delete session via API, using localStorage:', error);
       return this.deleteSessionLocal(userId, sessionId);
@@ -294,9 +299,16 @@ class SessionService {
     const data = localStorage.getItem(key);
     if (!data) return [];
     try {
-      const sessions = JSON.parse(data) as CounsellingSession[];
-      return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+      const parsed = JSON.parse(data);
+      // Handle corrupted data - ensure it's an array
+      if (!Array.isArray(parsed)) {
+        console.warn('Corrupted session data in localStorage, clearing:', parsed);
+        localStorage.removeItem(key);
+        return [];
+      }
+      return parsed.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     } catch {
+      localStorage.removeItem(key);
       return [];
     }
   }
