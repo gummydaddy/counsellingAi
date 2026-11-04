@@ -9,9 +9,10 @@
 
 const STORAGE_KEY = 'mindpath_global_knowledge';
 // API base URL - configurable via VITE_API_BASE_URL env var
-// Development: '/api/common' (proxied to localhost:8000)
-// Production (Vercel): 'https://your-backend.onrender.com/api/common'
-const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || '/api/common';
+// Development: '/api' (proxied to localhost:8000) - insights at '/api/common/insights/'
+// Production (Vercel): 'https://your-backend.onrender.com/api' - insights at '/api/common/insights/'
+const API_BASE = (import.meta as any).env?.VITE_API_BASE_URL || 'http://localhost:8000/api';
+const INSIGHTS_API_BASE = `${API_BASE}/common`;
 
 export interface ClinicalInsight {
   id?: string;
@@ -37,7 +38,7 @@ interface DataProvider {
 const DjangoBackendProvider: DataProvider = {
   async getInsights(): Promise<ClinicalInsight[]> {
     try {
-      const response = await fetch(`${API_BASE}/insights/`);
+      const response = await fetch(`${INSIGHTS_API_BASE}/insights/`);
       if (!response.ok) throw new Error('Failed to fetch insights');
       const data = await response.json();
       // Handle paginated response
@@ -59,7 +60,7 @@ const DjangoBackendProvider: DataProvider = {
 
   async addInsight(insight: ClinicalInsight): Promise<void> {
     try {
-      const response = await fetch(`${API_BASE}/insights/`, {
+      const response = await fetch(`${INSIGHTS_API_BASE}/insights/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -78,7 +79,7 @@ const DjangoBackendProvider: DataProvider = {
 
   async getStats(): Promise<{ totalSessionsLearned: number; experienceLevel: string }> {
     try {
-      const response = await fetch(`${API_BASE}/insights/stats/`);
+      const response = await fetch(`${INSIGHTS_API_BASE}/insights/stats/`);
       if (!response.ok) throw new Error('Failed to fetch stats');
       return await response.json();
     } catch (error) {
@@ -89,7 +90,7 @@ const DjangoBackendProvider: DataProvider = {
 
   async getContext(sessionType: string): Promise<string> {
     try {
-      const response = await fetch(`${API_BASE}/insights/context/${sessionType}/`);
+      const response = await fetch(`${INSIGHTS_API_BASE}/insights/context/${sessionType}/`);
       if (!response.ok) throw new Error('Failed to fetch context');
       const data = await response.json();
       return data.context || '';

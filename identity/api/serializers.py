@@ -17,6 +17,27 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "updated_at", "last_login"]
 
 
+class RegisterSerializer(serializers.ModelSerializer):
+    """Serializer for user registration."""
+    password = serializers.CharField(write_only=True, min_length=8)
+    phone_number = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    class Meta:
+        model = User
+        fields = [
+            "email", "phone_number", "first_name", "last_name", "password",
+        ]
+        extra_kwargs = {
+            "phone_number": {"required": False, "allow_blank": True, "allow_null": True},
+        }
+
+    def validate_phone_number(self, value):
+        """Convert empty string to None to avoid unique constraint violation."""
+        if value == "":
+            return None
+        return value
+
+
 class UserProfileSerializer(serializers.ModelSerializer):
     """Serializer for UserProfile model."""
 

@@ -215,7 +215,13 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  # Vite dev server
     "http://127.0.0.1:5173",
+    "https://test.counsel.socyfie.com",  # Production frontend
 ]
+
+# Add FRONTEND_URL from environment variable for production deployments
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'https://test.counsel.socyfie.com')
+if FRONTEND_URL and FRONTEND_URL not in CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS.append(FRONTEND_URL)
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -232,7 +238,10 @@ else:
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://test.counsel.socyfie.com",  # Production frontend
 ]
+if FRONTEND_URL and FRONTEND_URL not in CSRF_TRUSTED_ORIGINS:
+    CSRF_TRUSTED_ORIGINS.append(FRONTEND_URL)
 if not DEBUG:
     VERCEL_ORIGIN = os.environ.get('VERCEL_ORIGIN')
     if VERCEL_ORIGIN:
@@ -256,12 +265,6 @@ STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
-
-CSRF_TRUSTED_ORIGINS = [
-    #os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(","),
-    "http://localhost:8000",
-    "*"
-    ]
 
 ALLOWED_HOSTS = ["*"]
 

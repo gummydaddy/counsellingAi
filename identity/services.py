@@ -111,6 +111,10 @@ class RegistrationService:
             last_name=last_name,
         )
 
+        if password:
+            user.set_password(password)
+            user.save()
+
         # Create user profile
         UserProfile.objects.create(user=user)
 
