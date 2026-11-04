@@ -2,6 +2,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.contrib.auth import get_user_model
 
 
 # Organization status constants
@@ -79,6 +80,46 @@ def get_subscription_status_choices():
         (SUBSCRIPTION_STATUS_CANCELLED, "Cancelled"),
         (SUBSCRIPTION_STATUS_EXPIRED, "Expired"),
     ]
+
+
+# Session types
+SESSION_TYPES = [
+    ('school', 'School'),
+    ('medical', 'Medical'),
+    ('psychological', 'Psychological'),
+    ('career', 'Career'),
+    ('relationship', 'Relationship'),
+]
+
+# Session status
+SESSION_STATUS_CHOICES = [
+    ('in_progress', 'In Progress'),
+    ('completed', 'Completed'),
+    ('error', 'Error'),
+]
+
+# Assessment phases
+ASSESSMENT_PHASES = [
+    ('INITIAL', 'Initial'),
+    ('GENERATING_RAPPORT', 'Generating Rapport'),
+    ('RAPPORT', 'Rapport'),
+    ('GENERATING_DEEP_DIVE', 'Generating Deep Dive'),
+    ('DEEP_DIVE', 'Deep Dive'),
+]
+
+# App steps
+APP_STEPS = [
+    ('WELCOME', 'Welcome'),
+    ('SESSION_SELECTION', 'Session Selection'),
+    ('NOTES_PROMPT', 'Notes Prompt'),
+    ('NOTES_INPUT', 'Notes Input'),
+    ('MCQ_PHASE', 'MCQ Phase'),
+    ('GENERATING_PHASE1', 'Generating Phase 1'),
+    ('ASSESSMENT', 'Assessment'),
+    ('ANALYZING', 'Analyzing'),
+    ('RESULTS', 'Results'),
+    ('ERROR', 'Error'),
+]
 
 
 class Address(models.Model):
@@ -159,9 +200,87 @@ class Address(models.Model):
         return f"{self.address_line_1}, {self.city}, {self.country}"
 
 
+class CounsellingSession(models.Model):
+    """User counselling session model - stores session data persistently."""
+
+    id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="counselling_sessions"
+    )
+
+    session_type = models.CharField(
+        max_length=20,
+        choices=SESSION_TYPES,
+        db_index=True
+    )
+
+    title = models.CharField(max_length=255)
+
+    status = models.CharField(
+        max_length=20,
+        choices=SESSION_STATUS_CHOICES,
+        default='in_progress',
+        db_index=True
+    )
+
+    # Session progress data
+    current_step = models.CharField(
+        max_length=30,
+        choices=APP_STEPS,
+        default='WELCOME'
+    )
+
+    phase1_generated = models.BooleanField(default=False)
+    mcq_completed = models.BooleanField(default=False)
+    assessment_completed = models.BooleanField(default=False)
+    analysis_completed = models.BooleanField(default=False)
+
+    last_error = models.TextField(blank=True, null=True)
+    error_step = models.CharField(max_length=30, choices=APP_STEPS, blank=True, null=True)
+
+    assessment_phase = models.CharField(
+        max_length=30,
+        choices=ASSESSMENT_PHASES,
+        default='INITIAL'
+    )
+    current_question_index = models.IntegerField(default=0)
+
+    # JSON fields for complex data
+    counselor_notes = models.TextField(blank=True, null=True)
+    phase1_questions = models.JSONField(default=list, blank=True)
+    mcq_answers = models.JSONField(default=list, blank=True)
+    assessment_questions = models.JSONField(default=list, blank=True)
+    assessment_answers = models.JSONField(default=list, blank=True)
+
+    # Result data
+    result = models.JSONField(default=dict, blank=True, null=True)
+
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Counselling Session"
+        verbose_name_plural = "Counselling Sessions"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', '-created_at']),
+            models.Index(fields=['user', 'status']),
+        ]
+
+    def __str__(self):
+        return f"{self.title} ({self.user.email})"
+
+
 class ClinicalInsight(models.Model):
     """Clinical insights learned from sessions - with pgvector embeddings for semantic search."""
-    
+
     SESSION_TYPES = [
         ('school', 'School'),
         ('medical', 'Medical'),
@@ -169,24 +288,24 @@ class ClinicalInsight(models.Model):
         ('career', 'Career'),
         ('relationship', 'Relationship'),
     ]
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    
+
     session_type = models.CharField(max_length=20, choices=SESSION_TYPES, db_index=True)
     pattern = models.TextField()
     recommendation = models.TextField()
-    
+
     # pgvector embedding for semantic similarity search
     # 1536 dimensions for OpenAI ada-002, 768 for others
     embedding = models.BinaryField(null=True, blank=True)  # Store as raw bytes for pgvector
-    
+
     # Metadata
     confidence_score = models.FloatField(default=0.0)
     usage_count = models.IntegerField(default=0)
-    
+
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         verbose_name = "Clinical Insight"
         verbose_name_plural = "Clinical Insights"
@@ -195,15 +314,15 @@ class ClinicalInsight(models.Model):
             models.Index(fields=['session_type', '-created_at']),
             models.Index(fields=['confidence_score']),
         ]
-    
+
     def __str__(self):
         return f"[{self.session_type}] {self.pattern[:50]}..."
-    
+
     def set_embedding(self, vector: list[float]):
         """Store embedding as binary for pgvector."""
         import struct
         self.embedding = struct.pack(f'{len(vector)}f', *vector)
-    
+
     def get_embedding(self) -> list[float]:
         """Retrieve embedding as float list."""
         if not self.embedding:
