@@ -68,9 +68,14 @@ const App: React.FC = () => {
     setIsAuthenticated(authStatus);
   }, []);
 
-  const loadSessions = useCallback((userId: string) => {
-    const userSessions = sessionService.getSessions(userId);
-    setSessions(userSessions);
+  const loadSessions = useCallback(async (userId: string) => {
+    try {
+      const userSessions = await sessionService.getSessions(userId);
+      setSessions(userSessions);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
+      setSessions([]);
+    }
   }, []);
 
   // Auth check
@@ -102,20 +107,20 @@ const App: React.FC = () => {
 
   const saveProgress = useCallback(async (updates: Partial<CounsellingSession>) => {
     if (!currentUser || !currentSession) return;
-    const updated = sessionService.updateSessionData(currentUser.id, currentSession.id, updates);
+    const updated = await sessionService.updateSessionData(currentUser.id, currentSession.id, updates);
     if (updated) {
       setCurrentSession(updated);
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
     }
   }, [currentUser, currentSession, loadSessions]);
 
   const updateStep = useCallback(async (newStep: AppStep) => {
     if (!currentUser || !currentSession) return;
-    const updated = sessionService.updateSessionStep(currentUser.id, currentSession.id, newStep);
+    const updated = await sessionService.updateSessionStep(currentUser.id, currentSession.id, newStep);
     if (updated) {
       setCurrentSession(updated);
       setStep(newStep);
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
     } else {
       setStep(newStep);
     }
@@ -163,10 +168,10 @@ const App: React.FC = () => {
     if (currentUser) {
       if (!currentSession) {
         // Create new session
-        const newSession = sessionService.createSession(currentUser.id, sessionType, notes);
+        const newSession = await sessionService.createSession(currentUser.id, sessionType, notes);
         setCurrentSession(newSession);
         setActiveSessionId(newSession.id);
-        loadSessions(currentUser.id);
+        await loadSessions(currentUser.id);
       } else {
         // Update existing session with notes
         await saveProgress({ counselorNotes: notes });
@@ -191,8 +196,8 @@ const App: React.FC = () => {
         const error = `Context ingestion failed: ${e.message || 'Check your API Key settings.'}`;
         setErrorMsg(error);
         if (currentUser && currentSession) {
-          sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
-          loadSessions(currentUser.id);
+          await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+          await loadSessions(currentUser.id);
         }
         setStep(AppStep.ERROR);
       }
@@ -222,8 +227,8 @@ const App: React.FC = () => {
       const error = `Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`;
       setErrorMsg(error);
       if (currentUser && currentSession) {
-        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
-        loadSessions(currentUser.id);
+        await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+        await loadSessions(currentUser.id);
       }
       setStep(AppStep.ERROR);
     }
@@ -255,20 +260,20 @@ const App: React.FC = () => {
 
       // Complete the session
       if (currentUser && currentSession) {
-        const completedSession = sessionService.completeSession(currentUser.id, currentSession.id, analysis);
+        const completedSession = await sessionService.completeSession(currentUser.id, currentSession.id, analysis);
         if (completedSession) {
           setCurrentSession(completedSession);
           setActiveSessionId(completedSession.id);
         }
-        loadSessions(currentUser.id);
+        await loadSessions(currentUser.id);
       }
       await updateStep(AppStep.RESULTS);
     } catch (e: any) {
       const error = `Analysis Engine failed: ${e.message || 'Check browser console for details.'}`;
       setErrorMsg(error);
       if (currentUser && currentSession) {
-        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.ANALYZING);
-        loadSessions(currentUser.id);
+        await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.ANALYZING);
+        await loadSessions(currentUser.id);
       }
       setStep(AppStep.ERROR);
     }
@@ -350,21 +355,21 @@ const App: React.FC = () => {
     setSidebarCollapsed(true);
   };
 
-  const handleRetrySession = (session: CounsellingSession) => {
+  const handleRetrySession = async (session: CounsellingSession) => {
     if (!currentUser) return;
     
     // Reset error and retry from the failed step
-    const retriedSession = sessionService.retryFromStep(currentUser.id, session.id, session.progress.errorStep || AppStep.WELCOME);
+    const retriedSession = await sessionService.retryFromStep(currentUser.id, session.id, session.progress.errorStep || AppStep.WELCOME);
     if (retriedSession) {
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
       handleContinueSession(retriedSession);
     }
   };
 
-  const handleDeleteSession = (sessionId: string) => {
+  const handleDeleteSession = async (sessionId: string) => {
     if (!currentUser) return;
-    sessionService.deleteSession(currentUser.id, sessionId);
-    loadSessions(currentUser.id);
+    await sessionService.deleteSession(currentUser.id, sessionId);
+    await loadSessions(currentUser.id);
     if (activeSessionId === sessionId) {
       setActiveSessionId(null);
       setViewingSession(null);
