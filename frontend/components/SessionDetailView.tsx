@@ -64,14 +64,16 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
     }
   }, [session, result]);
 
-  const loadCrossSessionData = () => {
+  const loadCrossSessionData = async () => {
     const user = authService.getCurrentUser();
     if (!user) return;
     
     setInsightsLoading(true);
     try {
-      const insights = crossSessionAnalysis.generateCrossSessionInsights(user.id);
-      const relations = crossSessionAnalysis.findRelatedSessions(user.id, session.id);
+      const [insights, relations] = await Promise.all([
+        crossSessionAnalysis.generateCrossSessionInsights(user.id),
+        crossSessionAnalysis.findRelatedSessions(user.id, session.id),
+      ]);
       setCrossSessionInsights(insights);
       setRelatedSessions(relations);
     } catch (error) {

@@ -246,7 +246,7 @@ class SessionService {
 
       // Update cross-session analysis asynchronously
       crossSessionAnalysis.updateUserEmbedding(userId, session);
-      crossSessionAnalysis.generateCrossSessionInsights(userId);
+      crossSessionAnalysis.generateCrossSessionInsights(userId).catch(console.error);
 
       return session;
     } catch (error) {
@@ -438,7 +438,7 @@ class SessionService {
     localStorage.setItem(this.getSessionKey(userId), JSON.stringify(sessions));
 
     crossSessionAnalysis.updateUserEmbedding(userId, sessions[index]);
-    crossSessionAnalysis.generateCrossSessionInsights(userId);
+    crossSessionAnalysis.generateCrossSessionInsights(userId).catch(console.error);
 
     return sessions[index];
   }
