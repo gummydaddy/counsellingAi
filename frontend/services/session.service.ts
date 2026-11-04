@@ -3,7 +3,7 @@ import { authService } from './auth.service.ts';
 import { crossSessionAnalysis } from './crossSessionAnalysis.ts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-const SESSIONS_API_BASE = `${API_BASE_URL}/common/sessions/`;
+const SESSIONS_API_BASE = `${API_BASE_URL}/common/sessions`;
 
 async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = authService.getAccessToken();
@@ -140,7 +140,7 @@ class SessionService {
 
   async getSessions(userId: string): Promise<CounsellingSession[]> {
     try {
-      const data = await apiRequest<{ results: SessionListResponse[] }>(SESSIONS_API_BASE);
+      const data = await apiRequest<{ results: SessionListResponse[] }>(`${SESSIONS_API_BASE}/`);
       const sessions = (data.results || []).map((item: SessionListResponse) => this.mapSessionList(item));
       return sessions.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
     } catch (error) {
@@ -166,7 +166,7 @@ class SessionService {
   ): Promise<CounsellingSession> {
     try {
       const title = this.generateTitle(sessionType, null, null);
-      const data = await apiRequest<SessionDetailResponse>(SESSIONS_API_BASE, {
+      const data = await apiRequest<SessionDetailResponse>(`${SESSIONS_API_BASE}/`, {
         method: 'POST',
         body: JSON.stringify({
           session_type: sessionType,
