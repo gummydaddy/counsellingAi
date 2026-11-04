@@ -3,7 +3,7 @@ import { authService } from './auth.service.ts';
 import { crossSessionAnalysis } from './crossSessionAnalysis.ts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
-const SESSIONS_API_BASE = `${API_BASE_URL}/common/sessions`;
+const SESSIONS_API_BASE = `${API_BASE_URL}/common/sessions/`;
 
 async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = authService.getAccessToken();
