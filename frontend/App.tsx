@@ -255,7 +255,7 @@ const App: React.FC = () => {
         assessmentCompleted: true,
         assessmentPhase: AssessmentPhase.DEEP_DIVE,
         currentQuestionIndex: 0,
-        assessmentQuestions: [],
+        // Don't clear assessmentQuestions here - keep the questions that were saved
       } 
     });
 
