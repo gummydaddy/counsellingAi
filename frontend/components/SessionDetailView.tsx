@@ -51,6 +51,46 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const result = session.result;
   const isHighRisk = result?.riskAssessment?.isConcern;
   const isIncomplete = session.status === 'in_progress' || session.status === 'error';
+  
+  // Guard for incomplete sessions - check if result has valid traits data
+  const hasResult = result && result.traits && typeof result.traits.empathy === 'number';
+  if (isIncomplete || !hasResult) {
+    return (
+      <div className="w-full max-w-5xl mx-auto px-4 py-8">
+        <div className="text-center py-12 px-4 max-w-lg mx-auto">
+          <div className="mb-6 inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-full text-slate-600">
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <h3 className="text-xl font-bold text-slate-800 mb-2">
+            {session.status === 'error' ? 'Session Error' : 'Session In Progress'}
+          </h3>
+          <p className="text-slate-600 mb-6">
+            {session.status === 'error' 
+              ? 'This session encountered an error. You can retry from the failed step.'
+              : 'This session is still in progress. Results will appear here after completion.'}
+          </p>
+          <div className="flex gap-4 justify-center">
+            {session.status === 'error' && onRetry && (
+              <button 
+                onClick={() => onRetry!(session)}
+                className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                Retry from Failed Step
+              </button>
+            )}
+            <button onClick={onBack} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+              Back to Sessions
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Cross-session analysis state
   const [crossSessionInsights, setCrossSessionInsights] = useState<CrossSessionInsight[]>([]);
@@ -83,7 +123,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
     }
   };
 
-  const radarData = result ? [
+  const radarData = (result && result.traits && typeof result.traits.empathy === 'number') ? [
     { subject: labels[0], Value: result.traits.empathy, fullMark: 100 },
     { subject: labels[1], Value: result.traits.logic, fullMark: 100 },
     { subject: labels[2], Value: result.traits.integrity, fullMark: 100 },
