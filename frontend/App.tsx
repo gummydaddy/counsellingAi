@@ -311,33 +311,49 @@ const App: React.FC = () => {
     setStep(AppStep.SESSION_SELECTION);
   };
 
-  const handleSelectPastSession = (session: CounsellingSession) => {
-    setViewingSession(session);
+  const handleSelectPastSession = async (session: CounsellingSession) => {
+    // Fetch full session detail from API
+    if (currentUser) {
+      const fullSession = await sessionService.getSession(currentUser.id, session.id);
+      if (fullSession) {
+        setViewingSession(fullSession);
+      } else {
+        setViewingSession(session); // fallback to list data
+      }
+    } else {
+      setViewingSession(session);
+    }
     setActiveSessionId(session.id);
     setSidebarCollapsed(true);
     setStep(AppStep.WELCOME);
   };
 
-  const handleContinueSession = (session: CounsellingSession) => {
-    // Resume an incomplete session
+  const handleContinueSession = async (session: CounsellingSession) => {
+    // Resume an incomplete session - fetch full session detail
+    let fullSession = session;
+    if (currentUser) {
+      const fetched = await sessionService.getSession(currentUser.id, session.id);
+      if (fetched) fullSession = fetched;
+    }
+    
     setViewingSession(null);
-    setActiveSessionId(session.id);
-    setCurrentSession(session);
-    setSessionType(session.sessionType);
-    setCounselorNotes(session.counselorNotes);
-    setPhase1Questions(session.phase1Questions);
-    setMcqAnswers(session.mcqAnswers);
-    setSessionAnswers(session.assessmentAnswers);
-    setResult(session.result);
-    setErrorMsg(session.progress.lastError);
+    setActiveSessionId(fullSession.id);
+    setCurrentSession(fullSession);
+    setSessionType(fullSession.sessionType);
+    setCounselorNotes(fullSession.counselorNotes);
+    setPhase1Questions(fullSession.phase1Questions);
+    setMcqAnswers(fullSession.mcqAnswers);
+    setSessionAnswers(fullSession.assessmentAnswers);
+    setResult(fullSession.result);
+    setErrorMsg(fullSession.progress.lastError);
 
     // Restore assessment progress if available
-    if (session.progress.assessmentQuestions.length > 0) {
+    if (fullSession.progress.assessmentQuestions.length > 0) {
       setAssessmentProgress({
-        answers: session.assessmentAnswers,
-        currentIndex: session.progress.currentQuestionIndex,
-        phase: session.progress.assessmentPhase,
-        questions: session.progress.assessmentQuestions,
+        answers: fullSession.assessmentAnswers,
+        currentIndex: fullSession.progress.currentQuestionIndex,
+        phase: fullSession.progress.assessmentPhase,
+        questions: fullSession.progress.assessmentQuestions,
       });
     }
 
