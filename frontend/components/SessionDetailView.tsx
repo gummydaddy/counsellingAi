@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus } from '../types.ts';
+import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus, AppStep } from '../types.ts';
 import ChatSession from './ChatSession.tsx';
 import { sessionService } from '../services/session.service.ts';
 import { crossSessionAnalysis, CrossSessionInsight, SessionRelation } from '../services/crossSessionAnalysis.ts';
@@ -55,38 +55,172 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   // Guard for incomplete sessions - check if result has valid traits data
   const hasResult = result && result.traits && typeof result.traits.empathy === 'number';
   if (isIncomplete || !hasResult) {
+    const progress = session.progress;
+    const completedPhases = [];
+    if (session.counselorNotes !== null) completedPhases.push({ label: 'Counselor Notes', icon: '📝', completed: true });
+    if (progress.mcqCompleted) completedPhases.push({ label: 'MCQ Phase', icon: '✏️', completed: true });
+    if (progress.phase1Generated) completedPhases.push({ label: 'Foundation Questions', icon: '🧩', completed: true });
+    if (progress.assessmentCompleted) completedPhases.push({ label: 'Assessment', icon: '📋', completed: true });
+    
+    // Determine next step
+    let nextStepLabel = 'Start Session';
+    let nextStep = AppStep.WELCOME;
+    if (session.status === 'error' && progress.errorStep) {
+      nextStepLabel = `Retry from ${progress.errorStep}`;
+      nextStep = progress.errorStep;
+    } else if (progress.analysisCompleted) {
+      nextStepLabel = 'View Results';
+      nextStep = AppStep.RESULTS;
+    } else if (progress.assessmentCompleted) {
+      nextStepLabel = 'Continue to Analysis';
+      nextStep = AppStep.ANALYZING;
+    } else if (progress.phase1Generated) {
+      nextStepLabel = 'Continue Assessment';
+      nextStep = AppStep.ASSESSMENT;
+    } else if (progress.mcqCompleted) {
+      nextStepLabel = 'Continue to Foundation Questions';
+      nextStep = AppStep.GENERATING_PHASE1;
+    } else if (session.counselorNotes !== null) {
+      nextStepLabel = 'Continue to MCQ Phase';
+      nextStep = AppStep.MCQ_PHASE;
+    }
+    
     return (
       <div className="w-full max-w-5xl mx-auto px-4 py-8">
-        <div className="text-center py-12 px-4 max-w-lg mx-auto">
-          <div className="mb-6 inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-full text-slate-600">
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        {/* Header */}
+        <div className="flex items-center gap-4 mb-8">
+          <button
+            onClick={onBack}
+            className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
+          </button>
+          <div className="flex items-center gap-3 flex-1">
+            <span className="text-2xl">{SESSION_ICONS[session.sessionType]}</span>
+            <div className="flex-1">
+              <h1 className="text-xl font-bold text-slate-900">{session.title}</h1>
+              <p className="text-xs text-slate-500">
+                {new Date(session.createdAt).toLocaleDateString('en-US', {
+                  weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                })}
+              </p>
+            </div>
           </div>
-          <h3 className="text-xl font-bold text-slate-800 mb-2">
-            {session.status === 'error' ? 'Session Error' : 'Session In Progress'}
-          </h3>
-          <p className="text-slate-600 mb-6">
-            {session.status === 'error' 
-              ? 'This session encountered an error. You can retry from the failed step.'
-              : 'This session is still in progress. Results will appear here after completion.'}
-          </p>
-          <div className="flex gap-4 justify-center">
-            {session.status === 'error' && onRetry && (
-              <button 
-                onClick={() => onRetry!(session)}
-                className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                Retry from Failed Step
-              </button>
+        </div>
+
+        {/* Progress Overview */}
+        <div className="mb-8">
+          <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4">Session Progress</h2>
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: 'Counselor Notes', icon: '📝', done: session.counselorNotes !== null },
+              { label: 'MCQ Phase', icon: '✏️', done: progress.mcqCompleted },
+              { label: 'Foundation Questions', icon: '🧩', done: progress.phase1Generated },
+              { label: 'Assessment', icon: '📋', done: progress.assessmentCompleted },
+              { label: 'Analysis', icon: '🔬', done: progress.analysisCompleted },
+            ].map((phase, i) => (
+              <div key={phase.label} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+                phase.done 
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
+                  : i === completedPhases.length 
+                    ? 'bg-brand-50 text-brand-700 border border-brand-200 animate-pulse'
+                    : 'bg-slate-50 text-slate-400 border border-slate-200'
+              }`}>
+                <span className="text-lg">{phase.icon}</span>
+                <span>{phase.label}</span>
+                {phase.done && <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd"/></svg>}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Show completed data */}
+        {(session.counselorNotes || progress.mcqCompleted || progress.phase1Generated || progress.assessmentCompleted) && (
+          <div className="mb-8 space-y-6">
+            {session.counselorNotes && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-100">
+                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-3">
+                  <span className="text-2xl">📝</span> Counselor Notes
+                </h3>
+                <p className="text-slate-700 whitespace-pre-wrap bg-slate-50 p-4 rounded-xl border border-slate-100">{session.counselorNotes}</p>
+              </div>
             )}
-            <button onClick={onBack} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
-              Back to Sessions
-            </button>
+            {progress.mcqCompleted && session.mcqAnswers.length > 0 && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-100">
+                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-3">
+                  <span className="text-2xl">✏️</span> MCQ Answers ({session.mcqAnswers.length})
+                </h3>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {session.mcqAnswers.map((a, i) => (
+                    <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <p className="text-sm font-medium text-slate-600 mb-1">Q{i + 1}: {a.questionText}</p>
+                      <p className="text-slate-800 font-semibold px-3 py-2 bg-brand-50 rounded-lg border border-brand-100 inline-block">
+                        {a.selectedOption}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {progress.phase1Generated && session.phase1Questions.length > 0 && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-100">
+                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-3">
+                  <span className="text-2xl">🧩</span> Foundation Questions ({session.phase1Questions.length})
+                </h3>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {session.phase1Questions.map((q, i) => (
+                    <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <p className="text-sm font-medium text-slate-600 mb-1">Q{i + 1} [{q.category}]: {q.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            {progress.assessmentCompleted && session.assessmentAnswers.length > 0 && (
+              <div className="bg-white p-6 rounded-2xl border border-slate-100">
+                <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800 mb-3">
+                  <span className="text-2xl">📋</span> Assessment Answers ({session.assessmentAnswers.length})
+                </h3>
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {session.assessmentAnswers.map((a, i) => (
+                    <div key={i} className="bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <p className="text-sm font-medium text-slate-600 mb-1">Q{i + 1}: {a.questionText}</p>
+                      <p className="text-slate-800 whitespace-pre-wrap">{a.userResponse}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
+        )}
+
+        {/* Continue Button */}
+        <div className="flex gap-4 justify-center">
+          {session.status === 'error' && onRetry && (
+            <button 
+              onClick={() => onRetry!(session)}
+              className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              Retry from {progress.errorStep || 'Failed Step'}
+            </button>
+          )}
+          <button 
+            onClick={() => onRetry ? onRetry!(session) : onBack()} 
+            className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {nextStepLabel}
+          </button>
+          <button onClick={onBack} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+            Back to Sessions
+          </button>
         </div>
       </div>
     );
