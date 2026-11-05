@@ -173,7 +173,7 @@ const App: React.FC = () => {
     // Create or update session
     if (currentUser) {
       if (!currentSession) {
-        // Create new session
+        // Create new session (even if notes is null/skipped)
         const newSession = await sessionService.createSession(currentUser.id, sessionType, notes);
         setCurrentSession(newSession);
         setActiveSessionId(newSession.id);
@@ -208,6 +208,7 @@ const App: React.FC = () => {
         setStep(AppStep.ERROR);
       }
     } else {
+      // User skipped notes - go to MCQ phase, session was already created above
       await updateStep(AppStep.MCQ_PHASE);
     }
   };
