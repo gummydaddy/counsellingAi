@@ -155,7 +155,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   }, [onRetry, session, onBack]);
 
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8">
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
         <button
