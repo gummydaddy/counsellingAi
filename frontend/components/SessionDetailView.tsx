@@ -64,6 +64,13 @@ const SessionDetailView: React.FC<Props> = ({ sessionId, onBack, onRetry }) => {
       return;
     }
 
+    // Guard: don't fetch if sessionId is empty/invalid
+    if (!sessionId || sessionId.trim() === '') {
+      setError('No session selected');
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);

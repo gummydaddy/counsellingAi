@@ -378,11 +378,11 @@ const App: React.FC = () => {
     setSidebarCollapsed(true);
   };
 
-  const handleRetrySession = async (session: CounsellingSession) => {
+  const handleRetrySession = async (sessionId: string, step: AppStep) => {
     if (!currentUser) return;
     
     // Reset error and retry from the failed step
-    const retriedSession = await sessionService.retryFromStep(currentUser.id, session.id, session.progress.errorStep || AppStep.WELCOME);
+    const retriedSession = await sessionService.retryFromStep(currentUser.id, sessionId, step);
     if (retriedSession) {
       await loadSessions(currentUser.id);
       handleContinueSession(retriedSession);
@@ -462,7 +462,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <main className="flex-grow" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
-          <SessionDetailView session={viewingSession} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
+          <SessionDetailView sessionId={activeSessionId || ''} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
         </main>
       </div>
     );
