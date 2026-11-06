@@ -120,14 +120,14 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
 
   // All questions
   const allQuestions = [
-    ...session.phase1Questions.map(q => ({ ...q, phase: 'Foundation' as const, phaseOrder: 1 })),
-    ...session.assessmentQuestions.map(q => ({ ...q, phase: 'Assessment' as const, phaseOrder: 2 })),
+    ...(session.phase1Questions || []).map(q => ({ ...q, phase: 'Foundation' as const, phaseOrder: 1 })),
+    ...(session.assessmentQuestions || []).map(q => ({ ...q, phase: 'Assessment' as const, phaseOrder: 2 })),
   ].sort((a, b) => a.phaseOrder - b.phaseOrder);
 
   // All answers
   const allAnswers = [
-    ...session.mcqAnswers.map(a => ({ type: 'mcq' as const, ...a, questionType: 'MCQ' })),
-    ...session.assessmentAnswers.map(a => ({ type: 'text' as const, ...a, questionType: 'Assessment' })),
+    ...(session.mcqAnswers || []).map(a => ({ type: 'mcq' as const, ...a, questionType: 'MCQ' })),
+    ...(session.assessmentAnswers || []).map(a => ({ type: 'text' as const, ...a, questionType: 'Assessment' })),
   ];
 
   const tabs: { id: Tab; label: string; count?: number; disabled?: boolean }[] = [
