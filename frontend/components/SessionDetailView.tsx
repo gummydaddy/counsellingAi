@@ -59,6 +59,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const [relatedSessions, setRelatedSessions] = useState<SessionRelation[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [aiStats, setAiStats] = useState({ totalSessionsLearned: 0, experienceLevel: 'Novice' });
+  const [error, setError] = useState<string | null>(null);
 
   // Determine next step for incomplete sessions
   const getNextStep = useCallback(() => {
@@ -80,12 +81,13 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
 
   const nextStep = getNextStep();
 
-  // Load cross-session insights
+  // Load cross-session insights with error handling
   const loadCrossSessionData = useCallback(async () => {
     const user = authService.getCurrentUser();
     if (!user || !session.userId || session.userId !== user.id) return;
     
     setInsightsLoading(true);
+    setError(null);
     try {
       const [insights, relations, stats] = await Promise.all([
         crossSessionAnalysis.generateCrossSessionInsights(user.id),
@@ -95,8 +97,9 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
       setCrossSessionInsights(insights);
       setRelatedSessions(relations);
       setAiStats(stats);
-    } catch (error) {
-      console.error('Failed to load cross-session data:', error);
+    } catch (err) {
+      console.error('Failed to load cross-session data:', err);
+      setError('Failed to load insights');
     } finally {
       setInsightsLoading(false);
     }
@@ -108,7 +111,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
     }
   }, [loadCrossSessionData, isCompleted]);
 
-  // Radar data
+  // Radar data with safety check
   const radarData = (result && result.traits && typeof result.traits.empathy === 'number') ? [
     { subject: labels[0], Value: result.traits.empathy, fullMark: 100 },
     { subject: labels[1], Value: result.traits.logic, fullMark: 100 },
@@ -118,13 +121,13 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
     { subject: labels[5], Value: result.traits.social_calibration, fullMark: 100 },
   ] : [];
 
-  // All questions
+  // All questions with safety checks
   const allQuestions = [
     ...(session.phase1Questions || []).map(q => ({ ...q, phase: 'Foundation' as const, phaseOrder: 1 })),
     ...(session.assessmentQuestions || []).map(q => ({ ...q, phase: 'Assessment' as const, phaseOrder: 2 })),
   ].sort((a, b) => a.phaseOrder - b.phaseOrder);
 
-  // All answers
+  // All answers with safety checks
   const allAnswers = [
     ...(session.mcqAnswers || []).map(a => ({ type: 'mcq' as const, ...a, questionType: 'MCQ' })),
     ...(session.assessmentAnswers || []).map(a => ({ type: 'text' as const, ...a, questionType: 'Assessment' })),
@@ -153,6 +156,22 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
       onBack();
     }
   }, [onRetry, session, onBack]);
+
+  const getProgressPercent = (prog: any): number => {
+    if (prog.analysisCompleted) return 100;
+    if (prog.assessmentCompleted) return 75;
+    if (prog.phase1Generated) return 50;
+    if (prog.mcqCompleted) return 25;
+    return 10;
+  };
+
+  const getProgressLabel = (prog: any): string => {
+    if (prog.analysisCompleted) return 'Analysis complete';
+    if (prog.assessmentCompleted) return 'Assessment complete, analyzing...';
+    if (prog.phase1Generated) return 'Questions generated, in assessment...';
+    if (prog.mcqCompleted) return 'MCQ complete, generating questions...';
+    return 'Starting session...';
+  };
 
   return (
     <div className="w-full max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
@@ -687,7 +706,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
         ) : null}
       </div>
     </div>
-);
+  );
 }
 
 export default SessionDetailView;
