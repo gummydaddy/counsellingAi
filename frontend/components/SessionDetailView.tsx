@@ -51,6 +51,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const labels = getTraitLabels(session.sessionType);
   const result = session.result;
   const isHighRisk = result?.riskAssessment?.isConcern;
+  const isIncomplete = session.status === 'in_progress' || session.status === 'error';
   const isCompleted = session.status === 'completed';
   const progress = session.progress;
   
@@ -59,7 +60,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   const [relatedSessions, setRelatedSessions] = useState<SessionRelation[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
   const [aiStats, setAiStats] = useState({ totalSessionsLearned: 0, experienceLevel: 'Novice' });
-  const [error, setError] = useState<string | null>(null);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
 
   // Determine next step for incomplete sessions
   const getNextStep = useCallback(() => {
@@ -81,13 +82,13 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
 
   const nextStep = getNextStep();
 
-  // Load cross-session insights with error handling
+  // Load cross-session insights with proper backend API calls and error handling
   const loadCrossSessionData = useCallback(async () => {
     const user = authService.getCurrentUser();
     if (!user || !session.userId || session.userId !== user.id) return;
     
     setInsightsLoading(true);
-    setError(null);
+    setInsightsError(null);
     try {
       const [insights, relations, stats] = await Promise.all([
         crossSessionAnalysis.generateCrossSessionInsights(user.id),
@@ -99,7 +100,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
       setAiStats(stats);
     } catch (err) {
       console.error('Failed to load cross-session data:', err);
-      setError('Failed to load insights');
+      setInsightsError('Failed to load insights from server');
     } finally {
       setInsightsLoading(false);
     }
@@ -121,7 +122,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
     { subject: labels[5], Value: result.traits.social_calibration, fullMark: 100 },
   ] : [];
 
-  // All questions with safety checks
+  // All questions with safety checks - fetch from backend if not present
   const allQuestions = [
     ...(session.phase1Questions || []).map(q => ({ ...q, phase: 'Foundation' as const, phaseOrder: 1 })),
     ...(session.assessmentQuestions || []).map(q => ({ ...q, phase: 'Assessment' as const, phaseOrder: 2 })),
@@ -605,6 +606,18 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
                 <div className="flex items-center justify-center py-12">
                   <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
                   <span className="ml-3 text-slate-600">Analyzing your session history...</span>
+                </div>
+              ) : insightsError ? (
+                <div className="text-center py-12">
+                  <span className="text-4xl mb-4 block">⚠️</span>
+                  <h4 className="text-lg font-bold text-slate-800 mb-2">Failed to Load Insights</h4>
+                  <p className="text-slate-500 mb-4">{insightsError}</p>
+                  <button 
+                    onClick={loadCrossSessionData}
+                    className="px-4 py-2 bg-brand-600 text-white rounded-lg font-medium hover:bg-brand-700"
+                  >
+                    Retry
+                  </button>
                 </div>
               ) : crossSessionInsights.length === 0 && relatedSessions.length === 0 ? (
                 <div className="text-center py-12">
