@@ -270,8 +270,8 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
               {isCompleted && result && result.traits ? (
                 <div>
                   {/* Profile Card */}
-                  <div className="space-y-6">
-                    <div className="space-y-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-4 space-y-6">
                       <div className={`bg-white p-8 rounded-3xl shadow-xl border-t-8 ${theme.border} relative overflow-hidden`}>
                         <div className={`absolute top-0 right-0 p-4 opacity-5 text-6xl`}>{theme.icon}</div>
                         <h2 className="text-xs font-black tracking-widest text-slate-400 uppercase mb-3">Professional Archetype</h2>
@@ -307,7 +307,7 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
                     </div>
 
                     {/* Specialized Insight + Radar */}
-                    <div className="space-y-6">
+                    <div className="lg:col-span-8 space-y-6">
                       {/* Specialized Insight Card */}
                       <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                         <h3 className={`font-black ${theme.color} mb-6 text-sm uppercase tracking-widest flex items-center gap-2`}>
