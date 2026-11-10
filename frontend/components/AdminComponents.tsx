@@ -22,12 +22,12 @@ const AdminComponents: React.FC = () => {
     setTimeout(() => setMessage(null), 5000);
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = authService.login(email, password);
+    const result = await authService.login(email, password);
     if (result.success) {
       setCurrentUser(result.user!);
-      setAllUsers(authService.getAllUsers());
+      setAllUsers(await authService.getAllUsers());
       setView('dashboard');
       showMessage(result.message, 'success');
     } else {
@@ -37,12 +37,12 @@ const AdminComponents: React.FC = () => {
     setPassword('');
   };
 
-  const handleSignup = (e: React.FormEvent) => {
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = authService.signup(email, password, name);
+    const result = await authService.signup(email, password, name);
     if (result.success) {
       setCurrentUser(result.user!);
-      setAllUsers(authService.getAllUsers());
+      setAllUsers(await authService.getAllUsers());
       setView('dashboard');
       showMessage(result.message, 'success');
     } else {
@@ -53,16 +53,16 @@ const AdminComponents: React.FC = () => {
     setName('');
   };
 
-  const handleLogout = () => {
-    authService.logout();
+  const handleLogout = async () => {
+    await authService.logout();
     setCurrentUser(null);
     setAllUsers([]);
     setView('login');
   };
 
-  const handleChangePassword = (e: React.FormEvent) => {
+  const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = authService.changePassword(oldPassword, newPassword);
+    const result = await authService.changePassword(oldPassword, newPassword);
     if (result.success) {
       showMessage(result.message, 'success');
     } else {
@@ -72,9 +72,9 @@ const AdminComponents: React.FC = () => {
     setNewPassword('');
   };
 
-  const handleDeleteAccount = () => {
+  const handleDeleteAccount = async () => {
     if (confirm('Are you sure you want to delete your account? This cannot be undone.')) {
-      const result = authService.deleteAccount(password);
+      const result = await authService.deleteAccount(password);
       if (result.success) {
         setCurrentUser(null);
         setView('login');
@@ -85,11 +85,11 @@ const AdminComponents: React.FC = () => {
     }
   };
 
-  const handleCreateAdmin = (e: React.FormEvent) => {
+  const handleCreateAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    const result = authService.createAdminUser(creatingAdminName, creatingAdminEmail, creatingAdminPassword);
+    const result = await authService.createAdminUser(creatingAdminName, creatingAdminEmail, creatingAdminPassword);
     if (result.success) {
-      setAllUsers(authService.getAllUsers());
+      setAllUsers(await authService.getAllUsers());
       showMessage('Admin user created successfully', 'success');
     } else {
       showMessage(result.error || 'Failed to create admin', 'error');
@@ -99,11 +99,15 @@ const AdminComponents: React.FC = () => {
     setCreatingAdminPassword('');
   };
 
-  const handleDeleteUser = (userId: string) => {
+  const handleDeleteUser = async (userId: string) => {
     if (confirm('Delete this user? This cannot be undone.')) {
-      authService.deleteUser(userId);
-      setAllUsers(authService.getAllUsers());
-      showMessage('User deleted', 'success');
+      const result = await authService.deleteUser(userId);
+      if (result.success) {
+        setAllUsers(await authService.getAllUsers());
+        showMessage('User deleted', 'success');
+      } else {
+        showMessage(result.message || 'Failed to delete user', 'error');
+      }
     }
   };
 

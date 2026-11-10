@@ -40,6 +40,13 @@ const ResultsView: React.FC<Props> = ({ result, answers, onReset, sessionId, use
   }
 
   const [isLearning, setIsLearning] = useState(false);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [hasLearned, setHasLearned] = useState(false);
+  const [experienceLevel, setExperienceLevel] = useState('Novice');
+
+  const sessionType: SessionType = result.sessionType || 'school';
+  const riskLevel = result.riskAssessment?.level || 'Low';
+  const isHighRisk = result.riskAssessment?.isConcern || riskLevel === 'High' || riskLevel === 'Critical';
 
   const generateReport = useCallback(() => {
     const now = new Date().toLocaleDateString('en-US', { 
