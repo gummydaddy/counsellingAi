@@ -362,7 +362,7 @@ const SessionDetailView: React.FC<Props> = ({ sessionId, onBack, onRetry }) => {
 
       {/* Tab Content */}
       <div className="animate-fade-in">
-        {/* RESULTS TAB */}
+{/* RESULTS TAB */}
         {activeTab === 'results' && (
           <div className="space-y-6">
             {isCompleted && result && result.traits ? (
@@ -379,49 +379,90 @@ const SessionDetailView: React.FC<Props> = ({ sessionId, onBack, onRetry }) => {
                       <p className="text-slate-600 leading-relaxed text-sm font-medium">{result.archetypeDescription}</p>
                     </div>
 
+                    {/* Risk Assessment - Enhanced */}
                     <div className={`p-6 rounded-3xl border-2 shadow-sm ${isHighRisk ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
                       <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-bold text-slate-800">Professional Risk Assessment</h3>
+                        <h3 className="font-bold text-slate-800">Risk Assessment</h3>
                         <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${isHighRisk ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
                           {result.riskAssessment.level}
                         </span>
                       </div>
-                      <p className="text-sm text-slate-700 italic border-l-4 border-slate-200 pl-4 py-1 leading-relaxed">
-                        {result.riskAssessment.detailedAnalysis}
-                      </p>
+                      
+                      {/* Risk Level Indicator */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-slate-500">Risk Level</span>
+                          <span className="font-bold text-slate-800">{result.riskAssessment.level}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              result.riskAssessment.level === 'Critical' ? 'bg-red-600' :
+                              result.riskAssessment.level === 'High' ? 'bg-orange-500' :
+                              result.riskAssessment.level === 'Moderate' ? 'bg-yellow-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${result.riskAssessment.level === 'Critical' ? 100 : result.riskAssessment.level === 'High' ? 75 : result.riskAssessment.level === 'Moderate' ? 50 : 25}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* Detailed Analysis */}
+                      <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Clinical Analysis</p>
+                        <p className="text-sm text-slate-700 leading-relaxed">{result.riskAssessment.detailedAnalysis}</p>
+                      </div>
+
+                      {/* Risk Flags */}
                       {result.riskAssessment.flags.length > 0 && (
-                        <div className="mt-4">
-                          <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Risk Flags</p>
+                        <div className="mb-4">
+                          <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Identified Risk Factors</p>
                           <div className="flex flex-wrap gap-2">
                             {result.riskAssessment.flags.map((flag: string, i: number) => (
-                              <span key={i} className="px-2 py-1 bg-red-50 text-red-700 text-[10px] font-bold rounded-full border border-red-100">
+                              <span key={i} className="px-3 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-full border border-red-100">
                                 {flag}
                               </span>
                             ))}
                           </div>
                         </div>
                       )}
+
+                      {/* Concern Indicator */}
+                      {result.riskAssessment.isConcern && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+                          <svg className="w-4 h-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <p className="text-xs text-red-700 font-medium">Professional follow-up recommended</p>
+                        </div>
+                      )}
                     </div>
                   </div>
 
-                  {/* Specialized Insight + Radar */}
+                  {/* Specialized Insights + Radar */}
                   <div className="lg:col-span-8 space-y-6">
-                    {/* Specialized Insight Card */}
+                    {/* Specialized Insights Card - Comprehensive */}
                     <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
                       <h3 className={`font-black ${theme.color} mb-6 text-sm uppercase tracking-widest flex items-center gap-2`}>
                         <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
                         {theme.title}
                       </h3>
-                      {/* Specialized content based on session type */}
-                      {session.sessionType === 'medical' && result.professionalDiagnosis && (
-                        <div className="space-y-6">
-                          <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                            <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Diagnosis</p>
-                            <p className="text-slate-800 font-semibold">{result.professionalDiagnosis}</p>
-                          </div>
+
+                      {/* Diagnosis Section */}
+                      {(result.professionalDiagnosis || result.primaryPrecautions?.length || result.suggestedMedicines?.length) && (
+                        <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                            Clinical Diagnosis & Medical Guidance
+                          </h4>
+                          {result.professionalDiagnosis && (
+                            <div className="mb-4">
+                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Primary Diagnosis</p>
+                              <p className="text-slate-800 font-semibold leading-relaxed">{result.professionalDiagnosis}</p>
+                            </div>
+                          )}
                           {result.primaryPrecautions?.length && (
-                            <div>
-                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Suggested Precautions</p>
+                            <div className="mb-4">
+                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Recommended Precautions</p>
                               <ul className="space-y-2">
                                 {result.primaryPrecautions.map((p: string, i: number) => (
                                   <li key={i} className="text-sm text-slate-600 flex gap-2">
@@ -432,59 +473,106 @@ const SessionDetailView: React.FC<Props> = ({ sessionId, onBack, onRetry }) => {
                             </div>
                           )}
                           {result.suggestedMedicines?.length && (
-                            <div className="p-4 bg-red-50 rounded-2xl border border-red-100">
-                              <p className="text-xs font-bold text-red-800 mb-2 uppercase">Suggested Support (OTC Only)</p>
+                            <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                              <p className="text-xs font-bold text-red-800 mb-2 uppercase">Suggested Support (OTC / Lifestyle)</p>
                               <p className="text-sm text-red-700 font-medium italic">{result.suggestedMedicines.join(', ')}</p>
-                              <p className="text-[10px] text-red-400 mt-2 uppercase font-black">Educational Purposes Only</p>
+                              <p className="text-[10px] text-red-400 mt-2 uppercase font-black">Educational Purposes Only - Consult a licensed physician</p>
                             </div>
                           )}
                         </div>
                       )}
-                      {session.sessionType === 'psychological' && (
-                        <div className="space-y-6">
-                          {result.rootCauses?.length && (
-                            <div>
-                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Diagnostic Root Causes</p>
-                              <div className="space-y-2">
-                                {result.rootCauses.map((c: string, i: number) => (
-                                  <div key={i} className="p-3 bg-purple-50 text-purple-800 text-xs font-bold rounded-xl border border-purple-100">
-                                    {c}
-                                  </div>
-                                ))}
+
+                      {/* Root Causes Section */}
+                      {result.rootCauses?.length && (
+                        <div className="mb-8 p-6 bg-purple-50 rounded-2xl border border-purple-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                            Diagnostic Root Causes
+                          </h4>
+                          <div className="space-y-2">
+                            {result.rootCauses.map((c: string, i: number) => (
+                              <div key={i} className="p-3 bg-white text-purple-800 text-sm font-medium rounded-xl border border-purple-100 flex items-center gap-3">
+                                <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xs font-bold">{i + 1}</span>
+                                <span>{c}</span>
                               </div>
-                            </div>
-                          )}
-                          <div>
-                            <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Therapeutic Focus</p>
-                            <p className="text-sm text-slate-700 leading-relaxed font-medium">{result.counselingAdvice}</p>
+                            ))}
                           </div>
                         </div>
                       )}
-                      {['career', 'school', 'relationship'].includes(session.sessionType) && (
-                        <div className="space-y-6">
-                          <div className="p-5 bg-indigo-50/50 rounded-2xl border border-indigo-100">
-                            <p className="text-xs font-black text-indigo-400 mb-2 uppercase">Strategy Overview</p>
-                            <p className="text-sm text-indigo-900 font-medium leading-relaxed italic">
-                              {session.sessionType === 'relationship' ? result.interpersonalStrategy : result.counselingAdvice}
-                            </p>
-                          </div>
-                          {result.suggestedActionPlan?.length && (
-                            <div>
-                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Milestone Action Plan</p>
-                              <div className="space-y-3">
-                                {result.suggestedActionPlan.map((item: string, i: number) => (
-                                  <div key={i} className="flex items-center gap-3">
-                                    <div className={`w-6 h-6 rounded-full ${theme.bg} ${theme.color} flex items-center justify-center text-[10px] font-black border ${theme.border}`}>
-                                      {i + 1}
-                                    </div>
-                                    <p className="text-sm text-slate-700 font-bold">{item}</p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+
+                      {/* Therapeutic Focus / Counseling Advice Section */}
+                      {result.counselingAdvice && (
+                        <div className="mb-8 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                            Therapeutic Focus & Counseling Guidance
+                          </h4>
+                          <p className="text-sm text-indigo-900 font-medium leading-relaxed italic">{result.counselingAdvice}</p>
                         </div>
                       )}
+
+                      {/* Interpersonal Strategy Section */}
+                      {result.interpersonalStrategy && (
+                        <div className="mb-8 p-6 bg-pink-50 rounded-2xl border border-pink-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-pink-500"></span>
+                            Interpersonal Strategy
+                          </h4>
+                          <p className="text-sm text-pink-900 font-medium leading-relaxed">{result.interpersonalStrategy}</p>
+                        </div>
+                      )}
+
+                      {/* Action Plan Section */}
+                      {result.suggestedActionPlan?.length && (
+                        <div className="mb-8">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-brand-500"></span>
+                            Milestone Action Plan
+                          </h4>
+                          <div className="space-y-3">
+                            {result.suggestedActionPlan.map((item: string, i: number) => (
+                              <div key={i} className="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className={`w-8 h-8 rounded-full ${theme.bg} ${theme.color} flex items-center justify-center text-xs font-black border ${theme.border} flex-shrink-0`}>
+                                  {i + 1}
+                                </div>
+                                <p className="text-sm text-slate-700 font-medium leading-relaxed mt-0.5">{item}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Career Path Suggestions - Detailed */}
+                      {result.careerPathSuggestions?.length && (
+                        <div className="mb-8">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            Career Path Recommendations
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {result.careerPathSuggestions.map((path: any, i: number) => (
+                              <div key={i} className={`p-5 rounded-2xl border ${theme.border} ${theme.bg} hover:shadow-md transition-shadow`}>
+                                <div className="flex items-start gap-3 mb-3">
+                                  <div className={`w-10 h-10 rounded-xl ${theme.bg} ${theme.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                                    {['🎓', '💼', '🔬', '🎨', '🏥', '⚖️', '💻', '🏗️', '🌱', '📊'][i % 10]}
+                                  </div>
+                                  <h5 className={`font-bold text-sm ${theme.color}`}>{path.title}</h5>
+                                </div>
+                                <p className="text-xs text-slate-600 mb-2 leading-relaxed">{path.description}</p>
+                                <div className="pt-2 border-t border-slate-200">
+                                  <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Strategic Fit</p>
+                                  <p className="text-sm text-slate-700 font-medium">{path.strategicFit}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Summary Note */}
+                      <div className="p-4 bg-brand-50 rounded-xl border border-brand-100">
+                        <p className="text-xs text-brand-700 font-medium">This analysis is based on your assessment responses and is intended for educational and self-reflection purposes. For clinical or professional decisions, please consult qualified specialists in the relevant fields.</p>
+                      </div>
                     </div>
 
                     {/* Trait Radar */}
