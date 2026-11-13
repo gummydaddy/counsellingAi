@@ -118,8 +118,8 @@ class CrossSessionAnalysisService {
   }
 
   // Find related sessions for a given session
-  findRelatedSessions(userId: string, currentSessionId: string, threshold = 0.7): SessionRelation[] {
-    const sessions = sessionService.getSessions(userId);
+  async findRelatedSessions(userId: string, currentSessionId: string, threshold = 0.7): Promise<SessionRelation[]> {
+    const sessions = await sessionService.getSessions(userId);
     const currentSession = sessions.find(s => s.id === currentSessionId);
     
     if (!currentSession?.result) return [];
@@ -179,8 +179,8 @@ class CrossSessionAnalysisService {
   }
 
   // Generate cross-session insights for a user
-  generateCrossSessionInsights(userId: string): CrossSessionInsight[] {
-    const sessions = sessionService.getSessions(userId).filter(s => s.result);
+  async generateCrossSessionInsights(userId: string): Promise<CrossSessionInsight[]> {
+    const sessions = (await sessionService.getSessions(userId)).filter(s => s.result);
     const insights: CrossSessionInsight[] = [];
 
     if (sessions.length < 2) return insights;
@@ -295,10 +295,10 @@ class CrossSessionAnalysisService {
   }
 
   // Get enhanced context for AI generation using cross-session data
-  getEnhancedContext(userId: string, sessionType: SessionType): string {
+  async getEnhancedContext(userId: string, sessionType: SessionType): Promise<string> {
     const embedding = this.getUserEmbedding(userId);
     const insights = this.getCrossSessionInsights(userId);
-    const sessions = sessionService.getSessions(userId).filter(s => s.sessionType === sessionType && s.result);
+    const sessions = (await sessionService.getSessions(userId)).filter(s => s.sessionType === sessionType && s.result);
 
     let context = '';
 

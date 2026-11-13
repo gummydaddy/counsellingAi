@@ -471,7 +471,7 @@ export const generatePhase1Questions = async (
   const learnedContext = await KnowledgeBaseService.getLearningContext(sessionType);
 
   // Get cross-session enhanced context
-  const crossSessionContext = userId ? crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
+  const crossSessionContext = userId ? await crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
 
   let contextString = counselorNotes
     ? `EXPERT NOTES:\n${counselorNotes}`
@@ -546,7 +546,7 @@ export const analyzeStudentAnswers = async (answers: Answer[], sessionType: Sess
   const formattedQA = aiService.summarizeQA(answers);
   
   // Get cross-session enhanced context
-  const crossSessionContext = userId ? crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
+  const crossSessionContext = userId ? await crossSessionAnalysis.getEnhancedContext(userId, sessionType) : '';
 
   const prompt = `Perform a complete professional analysis. 
   

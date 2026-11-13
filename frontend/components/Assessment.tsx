@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Question, Answer, AssessmentPhase, SessionType } from '../types.ts';
 import { generateDeepDiveQuestions, generateRapportQuestion } from '../services/geminiService.ts';
 
@@ -27,13 +27,17 @@ const Assessment: React.FC<Props> = ({
   const [currentInput, setCurrentInput] = useState('');
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<AssessmentPhase>(initialPhase);
+  const isSavingRef = useRef(false);
 
-  // Save progress whenever answers, index, phase, or questions change
+  // Save progress only when answers actually change (not on index/phase/questions changes)
   useEffect(() => {
-    if (onProgress) {
+    if (onProgress && answers.length > 0 && !isSavingRef.current) {
+      isSavingRef.current = true;
       onProgress(answers, currentIndex, phase, questions);
+      // Allow next save after a short delay
+      setTimeout(() => { isSavingRef.current = false; }, 1000);
     }
-  }, [answers, currentIndex, phase, questions, onProgress]);
+  }, [answers, onProgress]); // Only depend on answers and onProgress
 
   const currentQuestion = questions[currentIndex];
   const progress = questions.length > 0 ? ((currentIndex) / questions.length) * 100 : 0;
