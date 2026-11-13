@@ -1,17 +1,18 @@
-import React, { useState, useEffect } from 'react';
-import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus } from '../types.ts';
+import React, { useState, useEffect, useCallback } from 'react';
+import { CounsellingSession, SessionType, Answer, MCQAnswer, SessionStatus, AppStep, AssessmentPhase, AnalysisResult, SessionProgress } from '../types.ts';
 import ChatSession from './ChatSession.tsx';
 import { sessionService } from '../services/session.service.ts';
 import { crossSessionAnalysis, CrossSessionInsight, SessionRelation } from '../services/crossSessionAnalysis.ts';
 import { authService } from '../services/auth.service.ts';
+import { KnowledgeBaseService } from '../services/knowledgeBaseService.ts';
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip
 } from 'recharts';
 
 interface Props {
-  session: CounsellingSession;
+  sessionId: string;
   onBack: () => void;
-  onRetry?: (session: CounsellingSession) => void;
+  onRetry?: (sessionId: string, step: AppStep) => void;
 }
 
 const SESSION_ICONS: Record<SessionType, string> = {
@@ -44,44 +45,111 @@ const getSessionTheme = (type: SessionType) => {
 
 type Tab = 'results' | 'questions' | 'answers' | 'chat' | 'insights';
 
-const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
+const SessionDetailView: React.FC<Props> = ({ sessionId, onBack, onRetry }) => {
+  const [session, setSession] = useState<CounsellingSession | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>('results');
-  const theme = getSessionTheme(session.sessionType);
-  const labels = getTraitLabels(session.sessionType);
-  const result = session.result;
-  const isHighRisk = result?.riskAssessment?.isConcern;
-  const isIncomplete = session.status === 'in_progress' || session.status === 'error';
-
-  // Cross-session analysis state
   const [crossSessionInsights, setCrossSessionInsights] = useState<CrossSessionInsight[]>([]);
   const [relatedSessions, setRelatedSessions] = useState<SessionRelation[]>([]);
   const [insightsLoading, setInsightsLoading] = useState(false);
+  const [aiStats, setAiStats] = useState({ totalSessionsLearned: 0, experienceLevel: 'Novice' });
+  const [insightsError, setInsightsError] = useState<string | null>(null);
+
+  const fetchSession = useCallback(async () => {
+    const user = authService.getCurrentUser();
+    if (!user) {
+      setError('Not authenticated');
+      setLoading(false);
+      return;
+    }
+
+    // Guard: don't fetch if sessionId is empty/invalid
+    if (!sessionId || sessionId.trim() === '') {
+      setError('No session selected');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      const sessionData = await sessionService.getSession(user.id, sessionId);
+      if (sessionData) {
+        setSession(sessionData);
+      } else {
+        setError('Session not found');
+      }
+    } catch (err) {
+      console.error('Failed to fetch session:', err);
+      setError('Failed to load session from server');
+    } finally {
+      setLoading(false);
+    }
+  }, [sessionId]);
 
   useEffect(() => {
-    const user = authService.getCurrentUser();
-    if (user && session.userId === user.id && result) {
-      loadCrossSessionData();
-    }
-  }, [session, result]);
+    fetchSession();
+  }, [fetchSession]);
 
-  const loadCrossSessionData = () => {
+  const loadCrossSessionData = useCallback(async () => {
     const user = authService.getCurrentUser();
-    if (!user) return;
-    
+    if (!user || !session?.userId || session.userId !== user.id || !session.result) return;
+
     setInsightsLoading(true);
+    setInsightsError(null);
     try {
-      const insights = crossSessionAnalysis.generateCrossSessionInsights(user.id);
-      const relations = crossSessionAnalysis.findRelatedSessions(user.id, session.id);
+      const [insights, relations, stats] = await Promise.all([
+        crossSessionAnalysis.generateCrossSessionInsights(user.id),
+        crossSessionAnalysis.findRelatedSessions(user.id, session.id),
+        KnowledgeBaseService.getStats(),
+      ]);
       setCrossSessionInsights(insights);
       setRelatedSessions(relations);
-    } catch (error) {
-      console.error('Failed to load cross-session data:', error);
+      setAiStats(stats);
+    } catch (err) {
+      console.error('Failed to load cross-session data:', err);
+      setInsightsError('Failed to load insights from server');
     } finally {
       setInsightsLoading(false);
     }
-  };
+  }, [session]);
 
-  const radarData = result ? [
+  useEffect(() => {
+    if (session?.status === 'completed' && session.result) {
+      loadCrossSessionData();
+    }
+  }, [session, loadCrossSessionData]);
+
+  const theme = session ? getSessionTheme(session.sessionType) : getSessionTheme('school');
+  const labels = session ? getTraitLabels(session.sessionType) : getTraitLabels('school');
+  const result = session?.result;
+  const isHighRisk = result?.riskAssessment?.isConcern;
+  const isIncomplete = session?.status === 'in_progress' || session?.status === 'error';
+  const isCompleted = session?.status === 'completed';
+  const progress = session?.progress;
+
+  const getNextStep = useCallback(() => {
+    if (!progress) return { label: 'Start Session', step: AppStep.WELCOME };
+    if (session?.status === 'error' && progress.errorStep) {
+      return { label: `Retry from ${progress.errorStep}`, step: progress.errorStep };
+    } else if (progress.analysisCompleted) {
+      return { label: 'View Results', step: AppStep.RESULTS };
+    } else if (progress.assessmentCompleted) {
+      return { label: 'Continue to Analysis', step: AppStep.ANALYZING };
+    } else if (progress.phase1Generated) {
+      return { label: 'Continue Assessment', step: AppStep.ASSESSMENT };
+    } else if (progress.mcqCompleted) {
+      return { label: 'Continue to Foundation Questions', step: AppStep.GENERATING_PHASE1 };
+    } else if (session?.counselorNotes !== null) {
+      return { label: 'Continue to MCQ Phase', step: AppStep.MCQ_PHASE };
+    }
+    return { label: 'Start Session', step: AppStep.WELCOME };
+  }, [progress, session]);
+
+  const nextStep = getNextStep();
+
+  const radarData = (result && result.traits && typeof result.traits.empathy === 'number') ? [
     { subject: labels[0], Value: result.traits.empathy, fullMark: 100 },
     { subject: labels[1], Value: result.traits.logic, fullMark: 100 },
     { subject: labels[2], Value: result.traits.integrity, fullMark: 100 },
@@ -91,30 +159,119 @@ const SessionDetailView: React.FC<Props> = ({ session, onBack, onRetry }) => {
   ] : [];
 
   const allQuestions = [
-    ...session.phase1Questions.map(q => ({ ...q, phase: 'Foundation' })),
-  ];
+    ...(session?.phase1Questions || []).map(q => ({ ...q, phase: 'Foundation' as const, phaseOrder: 1 })),
+    ...(session?.assessmentQuestions || []).map(q => ({ ...q, phase: 'Assessment' as const, phaseOrder: 2 })),
+  ].sort((a, b) => a.phaseOrder - b.phaseOrder);
 
   const allAnswers = [
-    ...session.mcqAnswers.map(a => ({ type: 'mcq' as const, ...a })),
-    ...session.assessmentAnswers.map(a => ({ type: 'text' as const, ...a })),
+    ...(session?.mcqAnswers || []).map(a => ({ type: 'mcq' as const, ...a, questionType: 'MCQ' })),
+    ...(session?.assessmentAnswers || []).map(a => ({ type: 'text' as const, ...a, questionType: 'Assessment' })),
   ];
 
-const tabs: { id: Tab; label: string; count?: number }[] = [
-    { id: 'results', label: 'Results' },
+  const tabs: { id: Tab; label: string; count?: number; disabled?: boolean }[] = [
+    { id: 'results', label: 'Results', disabled: !isCompleted },
     { id: 'questions', label: 'Questions', count: allQuestions.length },
     { id: 'answers', label: 'Answers', count: allAnswers.length },
-    { id: 'chat', label: 'Chat' },
-    { id: 'insights', label: 'Insights', count: crossSessionInsights.length + relatedSessions.length },
+    { id: 'chat', label: 'Chat', disabled: !isCompleted },
+    { id: 'insights', label: 'Insights', count: crossSessionInsights.length + relatedSessions.length, disabled: insightsLoading },
   ];
 
+  useEffect(() => {
+    if (tabs.find(t => t.id === activeTab)?.disabled) {
+      const available = tabs.find(t => !t.disabled);
+      if (available) setActiveTab(available.id);
+    }
+  }, [activeTab, tabs]);
+
+  const handleContinue = useCallback(() => {
+    if (onRetry && session) {
+      onRetry(sessionId, nextStep.step);
+    } else {
+      onBack();
+    }
+  }, [onRetry, session, sessionId, nextStep.step, onBack]);
+
+  const handleRetry = useCallback(async () => {
+    if (!session || !onRetry) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const user = authService.getCurrentUser();
+      if (!user) throw new Error('Not authenticated');
+
+      const retriedSession = await sessionService.retryFromStep(user.id, session.id, nextStep.step);
+      if (retriedSession) {
+        setSession(retriedSession);
+      } else {
+        setError('Failed to retry session');
+      }
+    } catch (err) {
+      console.error('Retry failed:', err);
+      setError('Failed to retry session');
+    } finally {
+      setLoading(false);
+    }
+  }, [session, onRetry, nextStep.step]);
+
+  const getProgressPercent = (prog: SessionProgress | undefined): number => {
+    if (!prog) return 10;
+    if (prog.analysisCompleted) return 100;
+    if (prog.assessmentCompleted) return 75;
+    if (prog.phase1Generated) return 50;
+    if (prog.mcqCompleted) return 25;
+    return 10;
+  };
+
+  const getProgressLabel = (prog: SessionProgress | undefined): string => {
+    if (!prog) return 'Starting session...';
+    if (prog.analysisCompleted) return 'Analysis complete';
+    if (prog.assessmentCompleted) return 'Assessment complete, analyzing...';
+    if (prog.phase1Generated) return 'Questions generated, in assessment...';
+    if (prog.mcqCompleted) return 'MCQ complete, generating questions...';
+    return 'Starting session...';
+  };
+
+  if (loading) {
+    return (
+      <div className="w-full max-w-5xl mx-auto px-4 py-8">
+        <div className="flex items-center justify-center h-64">
+          <div className="w-12 h-12 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+          <span className="ml-4 text-slate-600">Loading session...</span>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !session) {
+    return (
+      <div className="w-full max-w-5xl mx-auto px-4 py-8">
+        <div className="text-center py-16">
+          <button onClick={onBack} className="mb-6 p-2 rounded-lg hover:bg-slate-100">
+            <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <span className="text-4xl mb-4 block">⚠️</span>
+          <h2 className="text-2xl font-bold text-slate-800 mb-2">Unable to Load Session</h2>
+          <p className="text-slate-600 mb-6 max-w-md mx-auto">{error || 'Session not found'}</p>
+          <div className="flex gap-4 justify-center">
+            <button onClick={fetchSession} className="px-6 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg">
+              Try Again
+            </button>
+            <button onClick={onBack} className="px-6 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+              Back to Sessions
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="w-full max-w-5xl mx-auto px-4 py-8">
+    <div className="w-full max-w-5xl mx-auto px-4 py-8 overflow-x-hidden">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-8">
-        <button
-          onClick={onBack}
-          className="p-2 rounded-lg hover:bg-slate-100 transition-colors"
-        >
+      <div className="flex items-center gap-4 mb-6">
+        <button onClick={onBack} className="p-2 rounded-lg hover:bg-slate-100 transition-colors">
           <svg className="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
@@ -130,441 +287,629 @@ const tabs: { id: Tab; label: string; count?: number }[] = [
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {session.status === 'in_progress' && (
-              <span className="px-3 py-1 bg-yellow-500/20 text-yellow-700 text-xs font-bold rounded-full flex items-center gap-1">
-                <span className="w-1.5 h-1.5 bg-yellow-500 rounded-full animate-pulse"></span>
-                In Progress
-              </span>
-            )}
-            {session.status === 'error' && (
-              <span className="px-3 py-1 bg-red-500/20 text-red-700 text-xs font-bold rounded-full flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                Error
-              </span>
-            )}
-            {session.status === 'completed' && (
-              <span className="px-3 py-1 bg-green-500/20 text-green-700 text-xs font-bold rounded-full flex items-center gap-1">
-                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                Completed
-              </span>
-            )}
-            {isIncomplete && onRetry && (
-              <button
-                onClick={() => onRetry(session)}
-                className="px-4 py-2 bg-brand-600 text-white text-sm font-bold rounded-lg hover:bg-brand-700 transition-colors flex items-center gap-2 shadow-lg shadow-brand-100"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                </svg>
-                {session.status === 'error' ? 'Retry' : 'Continue'}
-              </button>
-            )}
+            <span className={`px-2 py-1 text-xs font-bold rounded-full ${session.status === 'completed' ? 'bg-emerald-100 text-emerald-700' :
+                session.status === 'error' ? 'bg-red-100 text-red-700' :
+                  'bg-yellow-100 text-yellow-700'
+              }`}>
+              {session.status}
+            </span>
           </div>
+        </div>
+      </div>
+
+      {/* Progress Overview */}
+      <div className="mb-6">
+        <h2 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-3">Session Progress</h2>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: 'Counselor Notes', icon: '📝', done: session.counselorNotes !== null },
+            { label: 'MCQ Phase', icon: '✏️', done: progress?.mcqCompleted },
+            { label: 'Foundation Questions', icon: '🧩', done: progress?.phase1Generated },
+            { label: 'Assessment', icon: '📋', done: progress?.assessmentCompleted },
+            { label: 'Analysis', icon: '🔬', done: progress?.analysisCompleted },
+          ].map((phase, i) => {
+            const completedCount = [
+              session.counselorNotes !== null,
+              progress?.mcqCompleted,
+              progress?.phase1Generated,
+              progress?.assessmentCompleted,
+              progress?.analysisCompleted,
+            ].filter(Boolean).length;
+            const isCurrent = i === completedCount && !phase.done;
+            return (
+              <div key={phase.label} className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-medium transition-all ${phase.done
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : isCurrent
+                    ? 'bg-brand-50 text-brand-700 border border-brand-200 animate-pulse'
+                    : 'bg-slate-50 text-slate-400 border border-slate-200'
+                }`}>
+                <span className="text-base">{phase.icon}</span>
+                <span>{phase.label}</span>
+                {phase.done && <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 mb-8 bg-slate-100 p-1 rounded-xl w-fit">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.id
-                ? 'bg-white text-slate-900 shadow-sm'
-                : 'text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {tab.label}
-            {tab.count !== undefined && (
-              <span className="ml-1.5 text-xs text-slate-400">({tab.count})</span>
-            )}
-          </button>
-        ))}
+      <div className="border-b border-slate-200 mb-6">
+        <nav className="flex gap-1" aria-label="Session tabs">
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => !tab.disabled && setActiveTab(tab.id)}
+              disabled={tab.disabled}
+              className={`px-4 py-2 text-sm font-medium rounded-t-xl transition-all border-b-2 border-transparent hover:text-brand-600 disabled:opacity-50 disabled:cursor-not-allowed ${activeTab === tab.id
+                  ? 'border-brand-600 text-brand-600'
+                  : 'text-slate-500 hover:text-slate-700'
+                }`}
+            >
+              <span className="flex items-center gap-1">
+                {tab.label}
+                {tab.count !== undefined && (
+                  <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-full ${activeTab === tab.id ? 'bg-brand-600 text-white' : 'bg-slate-100 text-slate-500'
+                    }`}>
+                    {tab.count}
+                  </span>
+                )}
+                {tab.disabled && <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" /></svg>}
+              </span>
+            </button>
+          ))}
+        </nav>
       </div>
 
-      {/* Results Tab */}
-      {activeTab === 'results' && result && (
-        <div className="animate-fade-in">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Archetype & Risk */}
-            <div className="space-y-6">
-              <div className={`bg-white p-6 rounded-2xl shadow-sm border-t-4 ${theme.border}`}>
-                <p className="text-xs font-black tracking-widest text-slate-400 uppercase mb-2">Archetype</p>
-                <h2 className={`text-2xl font-extrabold mb-3 ${isHighRisk ? 'text-red-700' : theme.color}`}>
-                  {result.archetype}
-                </h2>
-                <p className="text-sm text-slate-600 leading-relaxed">{result.archetypeDescription}</p>
-              </div>
+      {/* Tab Content */}
+      <div className="animate-fade-in">
+{/* RESULTS TAB */}
+        {activeTab === 'results' && (
+          <div className="space-y-6">
+            {isCompleted && result && result.traits ? (
+              <div>
+                {/* Profile Card */}
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  <div className="lg:col-span-4 space-y-6">
+                    <div className={`bg-white p-8 rounded-3xl shadow-xl border-t-8 ${theme.border} relative overflow-hidden`}>
+                      <div className={`absolute top-0 right-0 p-4 opacity-5 text-6xl`}>{theme.icon}</div>
+                      <h2 className="text-xs font-black tracking-widest text-slate-400 uppercase mb-3">Professional Archetype</h2>
+                      <h1 className={`text-3xl font-extrabold mb-4 leading-none ${isHighRisk ? 'text-red-700' : theme.color}`}>
+                        {result.archetype}
+                      </h1>
+                      <p className="text-slate-600 leading-relaxed text-sm font-medium">{result.archetypeDescription}</p>
+                    </div>
 
-              <div className={`p-6 rounded-2xl border-2 ${isHighRisk ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-slate-800 text-sm">Risk Assessment</h3>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                    isHighRisk ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'
-                  }`}>
-                    {result.riskAssessment.level}
-                  </span>
+                    {/* Risk Assessment - Enhanced */}
+                    <div className={`p-6 rounded-3xl border-2 shadow-sm ${isHighRisk ? 'bg-red-50 border-red-200' : 'bg-white border-slate-200'}`}>
+                      <div className="flex items-center justify-between mb-4">
+                        <h3 className="font-bold text-slate-800">Risk Assessment</h3>
+                        <span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase ${isHighRisk ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
+                          {result.riskAssessment.level}
+                        </span>
+                      </div>
+                      
+                      {/* Risk Level Indicator */}
+                      <div className="mb-4">
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-slate-500">Risk Level</span>
+                          <span className="font-bold text-slate-800">{result.riskAssessment.level}</span>
+                        </div>
+                        <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              result.riskAssessment.level === 'Critical' ? 'bg-red-600' :
+                              result.riskAssessment.level === 'High' ? 'bg-orange-500' :
+                              result.riskAssessment.level === 'Moderate' ? 'bg-yellow-500' : 'bg-emerald-500'
+                            }`}
+                            style={{ width: `${result.riskAssessment.level === 'Critical' ? 100 : result.riskAssessment.level === 'High' ? 75 : result.riskAssessment.level === 'Moderate' ? 50 : 25}%` }}
+                          ></div>
+                        </div>
+                      </div>
+
+                      {/* Detailed Analysis */}
+                      <div className="mb-4 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                        <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Clinical Analysis</p>
+                        <p className="text-sm text-slate-700 leading-relaxed">{result.riskAssessment.detailedAnalysis}</p>
+                      </div>
+
+                      {/* Risk Flags */}
+                      {result.riskAssessment.flags.length > 0 && (
+                        <div className="mb-4">
+                          <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Identified Risk Factors</p>
+                          <div className="flex flex-wrap gap-2">
+                            {result.riskAssessment.flags.map((flag: string, i: number) => (
+                              <span key={i} className="px-3 py-1 bg-red-50 text-red-700 text-xs font-medium rounded-full border border-red-100">
+                                {flag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Concern Indicator */}
+                      {result.riskAssessment.isConcern && (
+                        <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2">
+                          <svg className="w-4 h-4 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                          </svg>
+                          <p className="text-xs text-red-700 font-medium">Professional follow-up recommended</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Specialized Insights + Radar */}
+                  <div className="lg:col-span-8 space-y-6">
+                    {/* Specialized Insights Card - Comprehensive */}
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
+                      <h3 className={`font-black ${theme.color} mb-6 text-sm uppercase tracking-widest flex items-center gap-2`}>
+                        <span className="w-2 h-2 rounded-full bg-current animate-pulse"></span>
+                        {theme.title}
+                      </h3>
+
+                      {/* Diagnosis Section */}
+                      {(result.professionalDiagnosis || result.primaryPrecautions?.length || result.suggestedMedicines?.length) && (
+                        <div className="mb-8 p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                            Clinical Diagnosis & Medical Guidance
+                          </h4>
+                          {result.professionalDiagnosis && (
+                            <div className="mb-4">
+                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Primary Diagnosis</p>
+                              <p className="text-slate-800 font-semibold leading-relaxed">{result.professionalDiagnosis}</p>
+                            </div>
+                          )}
+                          {result.primaryPrecautions?.length && (
+                            <div className="mb-4">
+                              <p className="text-xs font-bold text-slate-400 mb-2 uppercase">Recommended Precautions</p>
+                              <ul className="space-y-2">
+                                {result.primaryPrecautions.map((p: string, i: number) => (
+                                  <li key={i} className="text-sm text-slate-600 flex gap-2">
+                                    <span className="text-red-400">•</span> {p}
+                                  </li>
+                                ))}
+                              </ul>
+                            </div>
+                          )}
+                          {result.suggestedMedicines?.length && (
+                            <div className="p-4 bg-red-50 rounded-xl border border-red-100">
+                              <p className="text-xs font-bold text-red-800 mb-2 uppercase">Suggested Support (OTC / Lifestyle)</p>
+                              <p className="text-sm text-red-700 font-medium italic">{result.suggestedMedicines.join(', ')}</p>
+                              <p className="text-[10px] text-red-400 mt-2 uppercase font-black">Educational Purposes Only - Consult a licensed physician</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Root Causes Section */}
+                      {result.rootCauses?.length && (
+                        <div className="mb-8 p-6 bg-purple-50 rounded-2xl border border-purple-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                            Diagnostic Root Causes
+                          </h4>
+                          <div className="space-y-2">
+                            {result.rootCauses.map((c: string, i: number) => (
+                              <div key={i} className="p-3 bg-white text-purple-800 text-sm font-medium rounded-xl border border-purple-100 flex items-center gap-3">
+                                <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xs font-bold">{i + 1}</span>
+                                <span>{c}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Therapeutic Focus / Counseling Advice Section */}
+                      {result.counselingAdvice && (
+                        <div className="mb-8 p-6 bg-indigo-50/50 rounded-2xl border border-indigo-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+                            Therapeutic Focus & Counseling Guidance
+                          </h4>
+                          <p className="text-sm text-indigo-900 font-medium leading-relaxed italic">{result.counselingAdvice}</p>
+                        </div>
+                      )}
+
+                      {/* Interpersonal Strategy Section */}
+                      {result.interpersonalStrategy && (
+                        <div className="mb-8 p-6 bg-pink-50 rounded-2xl border border-pink-100">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-pink-500"></span>
+                            Interpersonal Strategy
+                          </h4>
+                          <p className="text-sm text-pink-900 font-medium leading-relaxed">{result.interpersonalStrategy}</p>
+                        </div>
+                      )}
+
+                      {/* Action Plan Section */}
+                      {result.suggestedActionPlan?.length && (
+                        <div className="mb-8">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-brand-500"></span>
+                            Milestone Action Plan
+                          </h4>
+                          <div className="space-y-3">
+                            {result.suggestedActionPlan.map((item: string, i: number) => (
+                              <div key={i} className="flex items-start gap-3 p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                <div className={`w-8 h-8 rounded-full ${theme.bg} ${theme.color} flex items-center justify-center text-xs font-black border ${theme.border} flex-shrink-0`}>
+                                  {i + 1}
+                                </div>
+                                <p className="text-sm text-slate-700 font-medium leading-relaxed mt-0.5">{item}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Career Path Suggestions - Detailed */}
+                      {result.careerPathSuggestions?.length && (
+                        <div className="mb-8">
+                          <h4 className="font-bold text-slate-800 mb-4 flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                            Career Path Recommendations
+                          </h4>
+                          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            {result.careerPathSuggestions.map((path: any, i: number) => (
+                              <div key={i} className={`p-5 rounded-2xl border ${theme.border} ${theme.bg} hover:shadow-md transition-shadow`}>
+                                <div className="flex items-start gap-3 mb-3">
+                                  <div className={`w-10 h-10 rounded-xl ${theme.bg} ${theme.color} flex items-center justify-center text-lg flex-shrink-0`}>
+                                    {['🎓', '💼', '🔬', '🎨', '🏥', '⚖️', '💻', '🏗️', '🌱', '📊'][i % 10]}
+                                  </div>
+                                  <h5 className={`font-bold text-sm ${theme.color}`}>{path.title}</h5>
+                                </div>
+                                <p className="text-xs text-slate-600 mb-2 leading-relaxed">{path.description}</p>
+                                <div className="pt-2 border-t border-slate-200">
+                                  <p className="text-[10px] text-slate-400 font-medium uppercase mb-1">Strategic Fit</p>
+                                  <p className="text-sm text-slate-700 font-medium">{path.strategicFit}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Summary Note */}
+                      <div className="p-4 bg-brand-50 rounded-xl border border-brand-100">
+                        <p className="text-xs text-brand-700 font-medium">This analysis is based on your assessment responses and is intended for educational and self-reflection purposes. For clinical or professional decisions, please consult qualified specialists in the relevant fields.</p>
+                      </div>
+                    </div>
+
+                    {/* Trait Radar */}
+                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-slate-100">
+                      <h3 className="font-bold text-slate-900 mb-8 text-sm uppercase tracking-widest">Clinical Trait Signature</h3>
+                      <div className="h-[280px] w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+                            <PolarGrid stroke="#e2e8f0" strokeDasharray="3 3" />
+                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 800 }} />
+                            <Radar
+                              name="Patient Data"
+                              dataKey="Value"
+                              stroke={isHighRisk ? '#dc2626' : theme.color.includes('blue') ? '#2563eb' : theme.color.includes('emerald') ? '#059669' : '#4f46e5'}
+                              strokeWidth={3}
+                              fill={isHighRisk ? '#fee2e2' : theme.bg.replace('bg-', '#').replace('-50', '')}
+                              fillOpacity={0.6}
+                            />
+                            <Tooltip />
+                          </RadarChart>
+                        </ResponsiveContainer>
+                        <div className="mt-6 w-full pt-6 border-t border-slate-100">
+                          <p className="text-[10px] text-slate-400 font-black uppercase text-center mb-4">Recommended Career Pathings</p>
+                          <div className="flex flex-wrap gap-2 justify-center">
+                            {result.careerPathSuggestions?.slice(0, 3).map((p: any, i: number) => (
+                              <span key={i} className={`px-3 py-1 rounded-lg text-[10px] font-bold border ${theme.border} ${theme.bg} ${theme.color}`}>
+                                {p.title}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <p className="text-sm text-slate-700 italic leading-relaxed">
-                  {result.riskAssessment.detailedAnalysis}
+
+                {/* Chat Session */}
+                <div className="mt-10 pt-8 border-t border-slate-200">
+                  <ChatSession
+                    result={result}
+                    answers={session.assessmentAnswers || []}
+                    sessionType={session.sessionType}
+                    sessionId={session.id}
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="text-center py-16 px-4">
+                <div className="inline-flex items-center justify-center w-20 h-20 bg-brand-50 rounded-full mb-6 animate-pulse">
+                  <span className="text-4xl">{SESSION_ICONS[session.sessionType]}</span>
+                </div>
+                <h2 className="text-2xl font-bold text-slate-800 mb-2">Session In Progress</h2>
+                <p className="text-slate-600 mb-8 max-w-md mx-auto">
+                  Complete the remaining phases to generate your professional analysis report.
                 </p>
-                {result.riskAssessment.flags.length > 0 && (
-                  <div className="mt-3 flex flex-wrap gap-1">
-                    {result.riskAssessment.flags.map((flag, i) => (
-                      <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-medium">
-                        {flag}
-                      </span>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    onClick={handleContinue}
+                    className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                    {nextStep.label}
+                  </button>
+                  <button onClick={onBack} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+                    Back to Sessions
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* QUESTIONS TAB */}
+        {activeTab === 'questions' && (
+          <div className="space-y-4">
+            {allQuestions.length === 0 ? (
+              <div className="text-center py-12">
+                <span className="text-4xl mb-4 block">❓</span>
+                <p className="text-slate-500">No questions generated yet. Complete previous phases to see questions here.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-slate-800">All Questions ({allQuestions.length})</h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setActiveTab('answers')}
+                      className="px-3 py-1 text-xs font-bold bg-brand-100 text-brand-700 rounded-full hover:bg-brand-200 transition"
+                    >
+                      View Answers →
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {allQuestions.map((q, i) => (
+                    <div key={`${q.phase}-${i}`} className="bg-white p-5 rounded-xl border border-slate-100 hover:border-brand-200 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="flex-shrink-0 w-8 h-8 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center text-sm font-bold">
+                          {i + 1}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="px-2 py-0.5 text-[10px] font-bold uppercase rounded-full bg-brand-50 text-brand-700">
+                              {q.phase}
+                            </span>
+                            {q.category && (
+                              <span className="px-2 py-0.5 text-[10px] font-medium rounded-full bg-slate-100 text-slate-600">
+                                {q.category}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-slate-800 font-medium">{q.text}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ANSWERS TAB */}
+        {activeTab === 'answers' && (
+          <div className="space-y-4">
+            {allAnswers.length === 0 ? (
+              <div className="text-center py-12">
+                <span className="text-4xl mb-4 block">💬</span>
+                <p className="text-slate-500">No answers recorded yet. Complete phases to see your responses here.</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-bold text-slate-800">Your Responses ({allAnswers.length})</h3>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setActiveTab('questions')}
+                      className="px-3 py-1 text-xs font-bold bg-slate-100 text-slate-600 rounded-full hover:bg-slate-200 transition"
+                    >
+                      ← View Questions
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-3 max-h-[600px] overflow-y-auto">
+                  {allAnswers.map((a, i) => (
+                    <div key={`${a.type}-${i}`} className="bg-white p-5 rounded-xl border border-slate-100">
+                      <div className="flex items-start gap-3">
+                        <span className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${a.type === 'mcq' ? 'bg-emerald-50 text-emerald-600' : 'bg-purple-50 text-purple-600'
+                          }`}>
+                          {a.type === 'mcq' ? '✏️' : '📝'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`px-2 py-0.5 text-[10px] font-bold uppercase rounded-full ${a.type === 'mcq' ? 'bg-emerald-50 text-emerald-700' : 'bg-purple-50 text-purple-700'
+                              }`}>
+                              {a.questionType}
+                            </span>
+                          </div>
+                          <p className="text-slate-600 font-medium mb-2">{a.questionText}</p>
+                          <div className={`px-3 py-2 rounded-lg font-medium inline-block ${a.type === 'mcq'
+                              ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                              : 'bg-purple-50 text-purple-800 border border-purple-200'
+                            }`}>
+                            {a.type === 'mcq' ? a.selectedOption : a.userResponse}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* CHAT TAB */}
+        {activeTab === 'chat' && (
+          <div className="h-[500px]">
+            {isCompleted && result ? (
+              <ChatSession
+                result={result}
+                answers={session.assessmentAnswers || []}
+                sessionType={session.sessionType}
+                sessionId={session.id}
+              />
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-center">
+                <div className="w-20 h-20 bg-brand-50 rounded-full flex items-center justify-center mb-4">
+                  <span className="text-4xl">💬</span>
+                </div>
+                <h3 className="text-xl font-bold text-slate-800 mb-2">Chat Unavailable</h3>
+                <p className="text-slate-600 mb-4 max-w-md mx-auto">
+                  Complete the session to unlock AI chat with your personalized specialist.
+                </p>
+                <button
+                  onClick={handleContinue}
+                  className="px-6 py-2 bg-brand-600 text-white rounded-xl font-bold shadow"
+                >
+                  {nextStep.label}
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* INSIGHTS TAB */}
+        {activeTab === 'insights' && (
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-bold text-slate-800">Cross-Session Insights</h3>
+              <div className="flex items-center gap-2 text-sm text-slate-500">
+                <span>AI Experience: <span className="font-bold text-brand-600">{aiStats.experienceLevel}</span></span>
+                <span className="mx-2">|</span>
+                <span>{aiStats.totalSessionsLearned} Sessions Learned</span>
+              </div>
+            </div>
+
+            {insightsLoading ? (
+              <div className="flex items-center justify-center py-12">
+                <div className="w-8 h-8 border-4 border-brand-200 border-t-brand-600 rounded-full animate-spin"></div>
+                <span className="ml-3 text-slate-600">Analyzing your session history...</span>
+              </div>
+            ) : insightsError ? (
+              <div className="text-center py-12">
+                <span className="text-4xl mb-4 block">⚠️</span>
+                <h4 className="text-lg font-bold text-slate-800 mb-2">Failed to Load Insights</h4>
+                <p className="text-slate-500 mb-4">{insightsError}</p>
+                <button
+                  onClick={loadCrossSessionData}
+                  className="px-4 py-2 bg-brand-600 text-white rounded-lg font-medium hover:bg-brand-700"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : crossSessionInsights.length === 0 && relatedSessions.length === 0 ? (
+              <div className="text-center py-12">
+                <span className="text-4xl mb-4 block">🧠</span>
+                <h4 className="text-lg font-bold text-slate-800 mb-2">No Insights Yet</h4>
+                <p className="text-slate-500 mb-4">Complete more sessions to unlock cross-session pattern analysis.</p>
+                <p className="text-xs text-slate-400">Insights are generated from patterns across your completed sessions.</p>
+              </div>
+            ) : (
+              <>
+                {crossSessionInsights.length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-brand-600 animate-pulse"></span>
+                      Pattern Insights
+                    </h4>
+                    {crossSessionInsights.map((insight, i) => (
+                      <div key={i} className={`bg-white p-5 rounded-xl border-l-4 ${insight.type === 'risk' ? 'border-red-500' : insight.type === 'trend' ? 'border-emerald-500' : 'border-brand-500'} shadow-sm`}>
+                        <div className="flex items-start gap-3">
+                          <span className={`text-2xl ${insight.type === 'risk' ? 'text-red-500' : insight.type === 'trend' ? 'text-emerald-500' : 'text-brand-500'}`}>
+                            {insight.type === 'risk' ? '⚠️' : insight.type === 'trend' ? '📈' : '🔍'}
+                          </span>
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <h5 className="font-bold text-slate-900">{insight.title}</h5>
+                              <span className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${insight.type === 'risk' ? 'bg-red-100 text-red-700' : insight.type === 'trend' ? 'bg-emerald-100 text-emerald-700' : 'bg-brand-100 text-brand-700'}`}>
+                                {insight.type}
+                              </span>
+                            </div>
+                            <p className="text-slate-600 text-sm">{insight.description}</p>
+                            {insight.actionable && (
+                              <p className="text-brand-600 text-sm font-medium mt-2">💡 {insight.actionable}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 )}
-              </div>
-            </div>
 
-            {/* Radar Chart */}
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-900 mb-4 text-sm uppercase tracking-widest text-center">Trait Signature</h3>
-              <div className="h-[280px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData}>
-                    <PolarGrid stroke="#e2e8f0" strokeDasharray="3 3" />
-                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 10, fontWeight: 800 }} />
-                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                    <Radar
-                      name="Traits"
-                      dataKey="Value"
-                      stroke="#2563eb"
-                      strokeWidth={2}
-                      fill="#dbeafe"
-                      fillOpacity={0.6}
-                    />
-                    <Tooltip />
-                  </RadarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+                {relatedSessions.length > 0 && (
+                  <div className="space-y-4">
+                    <h4 className="font-bold text-slate-800 flex items-center gap-2">
+                      <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                      Related Sessions ({relatedSessions.length})
+                    </h4>
+                    {relatedSessions.map((rel, i) => (
+                      <div key={`${rel.sessionId}-${i}`} className="bg-white p-4 rounded-xl border border-slate-100 hover:border-purple-200 transition">
+                        <div className="flex items-center gap-3">
+                          <span className="w-10 h-10 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-lg">
+                            {SESSION_ICONS[rel.sessionId.split('-')[0] as SessionType] || '📋'}
+                          </span>
+                          <div className="flex-1">
+                            <p className="font-medium text-slate-800">Similarity: <span className="text-purple-600 font-bold">{Math.round(rel.similarity * 100)}%</span></p>
+                            <p className="text-sm text-slate-500">Shared: {rel.sharedTraits.join(', ') || 'None'}</p>
+                            {rel.sharedPatterns.length > 0 && (
+                              <p className="text-xs text-purple-600 mt-1">{rel.sharedPatterns[0]}</p>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
           </div>
+        )}
 
-          {/* Counseling Advice */}
-          {result.counselingAdvice && (
-            <div className="mt-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm uppercase tracking-widest mb-3">Counseling Advice</h3>
-              <p className="text-sm text-slate-700 leading-relaxed">{result.counselingAdvice}</p>
-            </div>
-          )}
+      </div>
 
-          {/* Career Paths */}
-          {result.careerPathSuggestions?.length > 0 && (
-            <div className="mt-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm uppercase tracking-widest mb-4">Career Path Suggestions</h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {result.careerPathSuggestions.map((path, i) => (
-                  <div key={i} className={`p-4 rounded-xl border ${theme.border} ${theme.bg}`}>
-                    <p className={`font-bold text-sm ${theme.color}`}>{path.title}</p>
-                    <p className="text-xs text-slate-600 mt-1">{path.description}</p>
-                    <p className="text-[10px] text-slate-400 mt-2 font-medium">{path.strategicFit}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Specialized Fields */}
-          {(result.professionalDiagnosis || result.rootCauses?.length || result.suggestedActionPlan?.length || result.interpersonalStrategy) && (
-            <div className="mt-6 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-              <h3 className="font-bold text-slate-800 text-sm uppercase tracking-widest mb-4">Specialized Insights</h3>
-              {result.professionalDiagnosis && (
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Diagnosis</p>
-                  <p className="text-sm text-slate-700">{result.professionalDiagnosis}</p>
-                </div>
-              )}
-              {result.rootCauses?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Root Causes</p>
-                  <div className="flex flex-wrap gap-2">
-                    {result.rootCauses.map((c, i) => (
-                      <span key={i} className="px-3 py-1 bg-purple-50 text-purple-700 rounded-lg text-xs font-medium border border-purple-100">{c}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {result.suggestedActionPlan?.length > 0 && (
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Action Plan</p>
-                  <ol className="space-y-1">
-                    {result.suggestedActionPlan.map((step, i) => (
-                      <li key={i} className="text-sm text-slate-700 flex gap-2">
-                        <span className="font-bold text-brand-600">{i + 1}.</span> {step}
-                      </li>
-                    ))}
-                  </ol>
-                </div>
-              )}
-              {result.interpersonalStrategy && (
-                <div className="mb-4">
-                  <p className="text-xs font-bold text-slate-400 uppercase mb-1">Interpersonal Strategy</p>
-                  <p className="text-sm text-slate-700">{result.interpersonalStrategy}</p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Results tab but no result */}
-      {activeTab === 'results' && !result && (
-        <div className="text-center py-16 text-slate-400">
-          {isIncomplete ? (
-            <div className="space-y-4">
-              <p className="text-lg font-medium">
-                {session.status === 'error' ? 'Session Interrupted' : 'Session In Progress'}
-              </p>
-              <p className="text-sm">
-                {session.status === 'error' 
-                  ? `Error at ${session.progress.errorStep ? session.progress.errorStep : 'unknown step'}: ${session.progress.lastError || 'Unknown error'}`
-                  : 'Continue from where you left off'}
-              </p>
-              <div className="w-full max-w-md mx-auto mt-6">
-                <div className="w-full bg-slate-200 rounded-full h-2.5 mb-2">
-                  <div 
-                    className="bg-brand-600 h-2.5 rounded-full transition-all duration-500 ease-out" 
-                    style={{ width: `${getProgressPercent(session.progress)}%` }}
-                  ></div>
-                </div>
-                <p className="text-xs text-slate-500">{getProgressLabel(session.progress)}</p>
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-lg font-medium">No results available</p>
-              <p className="text-sm mt-1">This session was not completed.</p>
-            </>
-          )}
-        </div>
-      )}
-
-      {/* Questions Tab */}
-      {activeTab === 'questions' && (
-        <div className="space-y-4 animate-fade-in">
-          {session.phase1Questions.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Assessment Questions</h3>
-              {session.phase1Questions.map((q, i) => (
-                <div key={q.id} className="bg-white p-5 rounded-xl border border-slate-100 mb-3 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <span className="flex-shrink-0 w-7 h-7 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center text-xs font-bold">
-                      {i + 1}
-                    </span>
-                    <div>
-                      <p className="text-sm font-medium text-slate-800">{q.text}</p>
-                      <span className="text-[10px] text-slate-400 mt-1 inline-block uppercase font-medium">{q.category}</span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-          {session.phase1Questions.length === 0 && (
-            <div className="text-center py-16 text-slate-400">
-              <p className="text-lg font-medium">No questions recorded</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Answers Tab */}
-      {activeTab === 'answers' && (
-        <div className="space-y-6 animate-fade-in">
-          {/* MCQ Answers */}
-          {session.mcqAnswers.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Multiple Choice Responses</h3>
-              {session.mcqAnswers.map((a, i) => (
-                <div key={i} className="bg-white p-5 rounded-xl border border-slate-100 mb-3 shadow-sm">
-                  <p className="text-sm font-medium text-slate-800 mb-2">{a.questionText}</p>
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-brand-500"></span>
-                    <p className="text-sm text-brand-700 font-medium">{a.selectedOption}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Assessment Answers */}
-          {session.assessmentAnswers.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Free-text Responses</h3>
-              {session.assessmentAnswers.map((a, i) => (
-                <div key={i} className="bg-white p-5 rounded-xl border border-slate-100 mb-3 shadow-sm">
-                  <div className="flex items-start gap-3 mb-3">
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center text-[10px] font-bold">
-                      Q{i + 1}
-                    </span>
-                    <p className="text-sm font-medium text-slate-800">{a.questionText}</p>
-                  </div>
-                  <div className="ml-9 p-3 bg-slate-50 rounded-lg border border-slate-100">
-                    <p className="text-sm text-slate-700 leading-relaxed">{a.userResponse}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {session.mcqAnswers.length === 0 && session.assessmentAnswers.length === 0 && (
-            <div className="text-center py-16 text-slate-400">
-              <p className="text-lg font-medium">No answers recorded</p>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Chat Tab */}
-      {activeTab === 'chat' && result && (
-        <div className="animate-fade-in">
-          <ChatSession 
-            result={result} 
-            answers={session.assessmentAnswers} 
-            sessionType={session.sessionType} 
-          />
-        </div>
-      )}
-
-      {activeTab === 'chat' && !result && (
-        <div className="text-center py-16 text-slate-400">
-          <p className="text-lg font-medium">Chat not available</p>
-          <p className="text-sm mt-1">This session was not completed.</p>
-        </div>
-      )}
-
-      {/* Insights Tab */}
-      {activeTab === 'insights' && (
-        <div className="space-y-6 animate-fade-in">
-          {/* Cross-Session Insights */}
-          {crossSessionInsights.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <svg className="w-4 h-4 text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                </svg>
-                Cross-Session Insights
-              </h3>
-              <div className="space-y-4">
-                {crossSessionInsights.map((insight, i) => (
-                  <div key={i} className="bg-white p-5 rounded-xl border border-slate-100 shadow-sm">
-                    <div className="flex items-start gap-3">
-                      <div className={`flex-shrink-0 w-10 h-10 rounded-xl flex items-center justify-center ${
-                        insight.type === 'risk' ? 'bg-red-100 text-red-600' :
-                        insight.type === 'trend' ? 'bg-emerald-100 text-emerald-600' :
-                        insight.type === 'pattern' ? 'bg-brand-100 text-brand-600' :
-                        'bg-purple-100 text-purple-600'
-                      }`}>
-                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          {insight.type === 'risk' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />}
-                          {insight.type === 'trend' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 4v8m0-8l-8 8-4-4-6 6" />}
-                          {insight.type === 'pattern' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m-4 0h8m-4 0l2-4-2-4" />}
-                          {insight.type === 'correlation' && <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />}
-                        </svg>
-                      </div>
-                      <div className="flex-1">
-                        <h4 className="font-bold text-slate-900 mb-1">{insight.title}</h4>
-                        <p className="text-sm text-slate-600 leading-relaxed mb-3">{insight.description}</p>
-                        <div className="flex items-center gap-4 text-xs">
-                          <span className="px-2 py-1 bg-slate-100 text-slate-600 rounded-full font-medium">
-                            Confidence: {Math.round(insight.confidence * 100)}%
-                          </span>
-                          {insight.actionable && (
-                            <span className="px-2 py-1 bg-brand-100 text-brand-700 rounded-full font-medium">
-                              💡 {insight.actionable}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Related Sessions */}
-          {relatedSessions.length > 0 && (
-            <div>
-              <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">
-                <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                </svg>
-                Related Sessions ({relatedSessions.length})
-              </h3>
-              <div className="space-y-3">
-                {relatedSessions.slice(0, 5).map((rel, i) => (
-                  <div key={rel.sessionId} className="bg-white p-4 rounded-xl border border-slate-100 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-600 flex items-center justify-center text-sm font-bold">
-                          {Math.round(rel.similarity * 100)}%
-                        </div>
-                        <div>
-                          <p className="font-medium text-slate-800 text-sm">Session {i + 1}</p>
-                          <p className="text-xs text-slate-500">Similarity: {Math.round(rel.similarity * 100)}%</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {rel.sharedTraits.map(trait => (
-                          <span key={trait} className="px-2 py-1 bg-brand-50 text-brand-700 text-[10px] font-medium rounded-full">
-                            {trait}
-                          </span>
-                        ))}
-                        {rel.sharedPatterns.map(pattern => (
-                          <span key={pattern} className="px-2 py-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium rounded-full">
-                            {pattern}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {crossSessionInsights.length === 0 && relatedSessions.length === 0 && (
-            <div className="text-center py-16 text-slate-400">
-              <svg className="w-16 h-16 mx-auto mb-4 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+      {/* Footer Actions for Incomplete Sessions */}
+      {!isCompleted ? (
+        <div className="mt-8 pt-6 border-t border-slate-200 flex gap-4 justify-center">
+          {session.status === 'error' && (
+            <button
+              onClick={handleRetry}
+              disabled={loading}
+              className="px-6 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2 disabled:opacity-50"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              <p className="text-lg font-medium">No cross-session insights yet</p>
-              <p className="text-sm mt-1">Complete more sessions to unlock pattern analysis and related session discovery.</p>
-            </div>
+              Retry from {progress?.errorStep || 'Failed Step'}
+            </button>
           )}
-
-          {insightsLoading && (
-            <div className="flex items-center justify-center py-8">
-              <div className="w-8 h-8 border-2 border-brand-600 border-t-transparent rounded-full animate-spin"></div>
-              <span className="ml-2 text-sm text-slate-500">Analyzing patterns...</span>
-            </div>
-          )}
+          <button
+            onClick={handleContinue}
+            className="px-8 py-3 bg-brand-600 text-white rounded-xl font-bold shadow-lg shadow-brand-100 flex items-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+            {nextStep.label}
+          </button>
+          <button onClick={onBack} className="px-8 py-3 bg-slate-600 text-white rounded-xl font-bold shadow-lg">
+            Back to Sessions
+          </button>
         </div>
-      )}
+      ) : null}
     </div>
   );
-};
-
-const getProgressPercent = (progress: any): number => {
-  if (progress.mcqCompleted) return 25;
-  if (progress.phase1Generated) return 40;
-  if (progress.assessmentCompleted) return 75;
-  if (progress.analysisCompleted) return 100;
-  return 10;
-};
-
-const getProgressLabel = (progress: any): string => {
-  if (progress.analysisCompleted) return 'Analysis complete';
-  if (progress.assessmentCompleted) return 'Assessment complete, analyzing...';
-  if (progress.phase1Generated) return 'Questions generated, in assessment...';
-  if (progress.mcqCompleted) return 'MCQ complete, generating questions...';
-  return 'Starting session...';
 };
 
 export default SessionDetailView;

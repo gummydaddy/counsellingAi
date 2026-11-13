@@ -64,13 +64,24 @@ const App: React.FC = () => {
   const checkAuth = useCallback(() => {
     const user = authService.getCurrentUser();
     const authStatus = !!user;
-    setCurrentUser(user);
+    // Only update state if user actually changed to prevent infinite re-renders
+    setCurrentUser(prev => {
+      const prevId = prev?.id;
+      const newId = user?.id;
+      if (prevId === newId) return prev;
+      return user;
+    });
     setIsAuthenticated(authStatus);
   }, []);
 
-  const loadSessions = useCallback((userId: string) => {
-    const userSessions = sessionService.getSessions(userId);
-    setSessions(userSessions);
+  const loadSessions = useCallback(async (userId: string) => {
+    try {
+      const userSessions = await sessionService.getSessions(userId);
+      setSessions(userSessions);
+    } catch (error) {
+      console.error('Failed to load sessions:', error);
+      setSessions([]);
+    }
   }, []);
 
   // Auth check
@@ -102,20 +113,20 @@ const App: React.FC = () => {
 
   const saveProgress = useCallback(async (updates: Partial<CounsellingSession>) => {
     if (!currentUser || !currentSession) return;
-    const updated = sessionService.updateSessionData(currentUser.id, currentSession.id, updates);
+    const updated = await sessionService.updateSessionData(currentUser.id, currentSession.id, updates);
     if (updated) {
       setCurrentSession(updated);
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
     }
   }, [currentUser, currentSession, loadSessions]);
 
   const updateStep = useCallback(async (newStep: AppStep) => {
     if (!currentUser || !currentSession) return;
-    const updated = sessionService.updateSessionStep(currentUser.id, currentSession.id, newStep);
+    const updated = await sessionService.updateSessionStep(currentUser.id, currentSession.id, newStep);
     if (updated) {
       setCurrentSession(updated);
       setStep(newStep);
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
     } else {
       setStep(newStep);
     }
@@ -162,11 +173,11 @@ const App: React.FC = () => {
     // Create or update session
     if (currentUser) {
       if (!currentSession) {
-        // Create new session
-        const newSession = sessionService.createSession(currentUser.id, sessionType, notes);
+        // Create new session (even if notes is null/skipped)
+        const newSession = await sessionService.createSession(currentUser.id, sessionType, notes);
         setCurrentSession(newSession);
         setActiveSessionId(newSession.id);
-        loadSessions(currentUser.id);
+        await loadSessions(currentUser.id);
       } else {
         // Update existing session with notes
         await saveProgress({ counselorNotes: notes });
@@ -191,12 +202,13 @@ const App: React.FC = () => {
         const error = `Context ingestion failed: ${e.message || 'Check your API Key settings.'}`;
         setErrorMsg(error);
         if (currentUser && currentSession) {
-          sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
-          loadSessions(currentUser.id);
+          await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+          await loadSessions(currentUser.id);
         }
         setStep(AppStep.ERROR);
       }
     } else {
+      // User skipped notes - go to MCQ phase, session was already created above
       await updateStep(AppStep.MCQ_PHASE);
     }
   };
@@ -222,8 +234,8 @@ const App: React.FC = () => {
       const error = `Generation failed: ${e.message || 'Ensure your API Key is correctly configured in Vercel.'}`;
       setErrorMsg(error);
       if (currentUser && currentSession) {
-        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
-        loadSessions(currentUser.id);
+        await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.GENERATING_PHASE1);
+        await loadSessions(currentUser.id);
       }
       setStep(AppStep.ERROR);
     }
@@ -244,7 +256,7 @@ const App: React.FC = () => {
         assessmentCompleted: true,
         assessmentPhase: AssessmentPhase.DEEP_DIVE,
         currentQuestionIndex: 0,
-        assessmentQuestions: [],
+        // Don't clear assessmentQuestions here - keep the questions that were saved
       } 
     });
 
@@ -255,20 +267,20 @@ const App: React.FC = () => {
 
       // Complete the session
       if (currentUser && currentSession) {
-        const completedSession = sessionService.completeSession(currentUser.id, currentSession.id, analysis);
+        const completedSession = await sessionService.completeSession(currentUser.id, currentSession.id, analysis);
         if (completedSession) {
           setCurrentSession(completedSession);
           setActiveSessionId(completedSession.id);
         }
-        loadSessions(currentUser.id);
+        await loadSessions(currentUser.id);
       }
       await updateStep(AppStep.RESULTS);
     } catch (e: any) {
       const error = `Analysis Engine failed: ${e.message || 'Check browser console for details.'}`;
       setErrorMsg(error);
       if (currentUser && currentSession) {
-        sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.ANALYZING);
-        loadSessions(currentUser.id);
+        await sessionService.setSessionError(currentUser.id, currentSession.id, error, AppStep.ANALYZING);
+        await loadSessions(currentUser.id);
       }
       setStep(AppStep.ERROR);
     }
@@ -299,33 +311,49 @@ const App: React.FC = () => {
     setStep(AppStep.SESSION_SELECTION);
   };
 
-  const handleSelectPastSession = (session: CounsellingSession) => {
-    setViewingSession(session);
+  const handleSelectPastSession = async (session: CounsellingSession) => {
+    // Fetch full session detail from API
+    if (currentUser) {
+      const fullSession = await sessionService.getSession(currentUser.id, session.id);
+      if (fullSession) {
+        setViewingSession(fullSession);
+      } else {
+        setViewingSession(session); // fallback to list data
+      }
+    } else {
+      setViewingSession(session);
+    }
     setActiveSessionId(session.id);
     setSidebarCollapsed(true);
     setStep(AppStep.WELCOME);
   };
 
-  const handleContinueSession = (session: CounsellingSession) => {
-    // Resume an incomplete session
+  const handleContinueSession = async (session: CounsellingSession) => {
+    // Resume an incomplete session - fetch full session detail
+    let fullSession = session;
+    if (currentUser) {
+      const fetched = await sessionService.getSession(currentUser.id, session.id);
+      if (fetched) fullSession = fetched;
+    }
+    
     setViewingSession(null);
-    setActiveSessionId(session.id);
-    setCurrentSession(session);
-    setSessionType(session.sessionType);
-    setCounselorNotes(session.counselorNotes);
-    setPhase1Questions(session.phase1Questions);
-    setMcqAnswers(session.mcqAnswers);
-    setSessionAnswers(session.assessmentAnswers);
-    setResult(session.result);
-    setErrorMsg(session.progress.lastError);
+    setActiveSessionId(fullSession.id);
+    setCurrentSession(fullSession);
+    setSessionType(fullSession.sessionType);
+    setCounselorNotes(fullSession.counselorNotes);
+    setPhase1Questions(fullSession.phase1Questions);
+    setMcqAnswers(fullSession.mcqAnswers);
+    setSessionAnswers(fullSession.assessmentAnswers);
+    setResult(fullSession.result);
+    setErrorMsg(fullSession.progress.lastError);
 
     // Restore assessment progress if available
-    if (session.progress.assessmentQuestions.length > 0) {
+    if (fullSession.progress.assessmentQuestions.length > 0) {
       setAssessmentProgress({
-        answers: session.assessmentAnswers,
-        currentIndex: session.progress.currentQuestionIndex,
-        phase: session.progress.assessmentPhase,
-        questions: session.progress.assessmentQuestions,
+        answers: fullSession.assessmentAnswers,
+        currentIndex: fullSession.progress.currentQuestionIndex,
+        phase: fullSession.progress.assessmentPhase,
+        questions: fullSession.progress.assessmentQuestions,
       });
     }
 
@@ -350,21 +378,21 @@ const App: React.FC = () => {
     setSidebarCollapsed(true);
   };
 
-  const handleRetrySession = (session: CounsellingSession) => {
+  const handleRetrySession = async (sessionId: string, step: AppStep) => {
     if (!currentUser) return;
     
     // Reset error and retry from the failed step
-    const retriedSession = sessionService.retryFromStep(currentUser.id, session.id, session.progress.errorStep || AppStep.WELCOME);
+    const retriedSession = await sessionService.retryFromStep(currentUser.id, sessionId, step);
     if (retriedSession) {
-      loadSessions(currentUser.id);
+      await loadSessions(currentUser.id);
       handleContinueSession(retriedSession);
     }
   };
 
-  const handleDeleteSession = (sessionId: string) => {
+  const handleDeleteSession = async (sessionId: string) => {
     if (!currentUser) return;
-    sessionService.deleteSession(currentUser.id, sessionId);
-    loadSessions(currentUser.id);
+    await sessionService.deleteSession(currentUser.id, sessionId);
+    await loadSessions(currentUser.id);
     if (activeSessionId === sessionId) {
       setActiveSessionId(null);
       setViewingSession(null);
@@ -434,7 +462,7 @@ const App: React.FC = () => {
           </div>
         </header>
         <main className="flex-grow" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
-          <SessionDetailView session={viewingSession} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
+          <SessionDetailView sessionId={activeSessionId || ''} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
         </main>
       </div>
     );

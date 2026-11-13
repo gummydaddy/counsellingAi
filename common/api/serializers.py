@@ -1,12 +1,12 @@
 """Serializers for Clinical Insights API."""
 
 from rest_framework import serializers
-from common.models import ClinicalInsight
+from common.models import ClinicalInsight, CounsellingSession
 
 
 class ClinicalInsightSerializer(serializers.ModelSerializer):
     """Serializer for ClinicalInsight model."""
-    
+
     class Meta:
         model = ClinicalInsight
         fields = [
@@ -19,14 +19,14 @@ class ClinicalInsightSerializer(serializers.ModelSerializer):
 
 class ClinicalInsightCreateSerializer(serializers.ModelSerializer):
     """Serializer for creating ClinicalInsight with optional embedding."""
-    
+
     embedding = serializers.ListField(
         child=serializers.FloatField(),
         required=False,
         write_only=True,
         help_text="Optional embedding vector for semantic search"
     )
-    
+
     class Meta:
         model = ClinicalInsight
         fields = [
@@ -38,9 +38,39 @@ class ClinicalInsightCreateSerializer(serializers.ModelSerializer):
 
 class ClinicalInsightStatsSerializer(serializers.Serializer):
     """Serializer for insights statistics."""
-    
+
     total_sessions_learned = serializers.IntegerField()
     experience_level = serializers.CharField()
     by_session_type = serializers.DictField(
         child=serializers.IntegerField()
     )
+
+
+class CounsellingSessionSerializer(serializers.ModelSerializer):
+    """Serializer for CounsellingSession model."""
+
+    class Meta:
+        model = CounsellingSession
+        fields = [
+            'id', 'session_type', 'title', 'status',
+            'current_step', 'phase1_generated', 'mcq_completed',
+            'assessment_completed', 'analysis_completed',
+            'last_error', 'error_step', 'assessment_phase',
+            'current_question_index', 'counselor_notes',
+            'phase1_questions', 'mcq_answers', 'assessment_questions',
+            'assessment_answers', 'result',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+
+class CounsellingSessionListSerializer(serializers.ModelSerializer):
+    """Lightweight serializer for listing sessions."""
+
+    class Meta:
+        model = CounsellingSession
+        fields = [
+            'id', 'session_type', 'title', 'status',
+            'current_step', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at']

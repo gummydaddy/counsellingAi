@@ -43,10 +43,12 @@ class AuthService {
       headers,
     });
 
-    const data = await response.json();
+    // Handle empty bodies (e.g. DRF returns 204 No Content for logout/delete)
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
 
     if (!response.ok) {
-      throw new Error(data.error || data.message || 'Request failed');
+      throw new Error(data.error || data.message || data.detail || 'Request failed');
     }
 
     return data;
@@ -260,6 +262,73 @@ class AuthService {
       return { success: true, message: 'Account deleted successfully' };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to delete account';
+      return { success: false, message };
+    }
+  }
+
+  /**
+   * Get all users (admin)
+   */
+  async getAllUsers(): Promise<User[]> {
+    try {
+      // DRF paginates list endpoints: { count, next, previous, results }
+      const data = await this.request<
+        Record<string, unknown>[] | { results?: Record<string, unknown>[] }
+      >('/auth/users/', {
+        method: 'GET',
+      });
+      const users = Array.isArray(data) ? data : data.results ?? [];
+      return users.map((user) => this.mapDjangoUser(user));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Create a new user (admin)
+   *
+   * Note: uses the public register endpoint — the backend currently has no
+   * endpoint that sets is_staff/is_superuser, so the created user is a
+   * regular user until promoted in Django admin.
+   */
+  async createAdminUser(
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ success: boolean; message?: string; error?: string }> {
+    const nameParts = name.trim().split(' ');
+    const first_name = nameParts[0] || '';
+    const last_name = nameParts.slice(1).join(' ') || '';
+
+    try {
+      await this.request('/auth/users/register/', {
+        method: 'POST',
+        skipAuth: true,
+        body: JSON.stringify({
+          email: email.toLowerCase(),
+          password,
+          first_name,
+          last_name,
+        }),
+      });
+      return { success: true, message: 'Admin user created successfully' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to create admin user';
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Delete a user by ID (admin)
+   */
+  async deleteUser(userId: string): Promise<{ success: boolean; message?: string }> {
+    try {
+      await this.request(`/auth/users/${userId}/`, {
+        method: 'DELETE',
+      });
+      return { success: true, message: 'User deleted' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to delete user';
       return { success: false, message };
     }
   }
