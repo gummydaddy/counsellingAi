@@ -26,7 +26,10 @@ async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T>
       headers['Authorization'] = `Bearer ${newToken}`;
       const retryResponse = await fetch(url, { ...options, headers });
       if (!retryResponse.ok) {
-        throw new Error(`API error: ${retryResponse.status}`);
+        const text = await retryResponse.text();
+        let data: any = {};
+        try { data = text ? JSON.parse(text) : {}; } catch {}
+        throw new Error(data.error || data.message || data.detail || `API error: ${retryResponse.status}`);
       }
       return retryResponse.json();
     } else {
@@ -38,10 +41,14 @@ async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T>
   }
 
   if (!response.ok) {
-    throw new Error(`API error: ${response.status}`);
+    const text = await response.text();
+    let data: any = {};
+    try { data = text ? JSON.parse(text) : {}; } catch {}
+    throw new Error(data.error || data.message || data.detail || `API error: ${response.status}`);
   }
 
-  return response.json();
+  const text = await response.text();
+  return text ? JSON.parse(text) : ({} as T);
 }
 
 interface SessionListResponse {
