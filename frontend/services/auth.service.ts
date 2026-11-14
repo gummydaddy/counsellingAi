@@ -45,10 +45,21 @@ class AuthService {
 
     // Handle empty bodies (e.g. DRF returns 204 No Content for logout/delete)
     const text = await response.text();
-    const data = text ? JSON.parse(text) : {};
+    
+    let data: any = {};
+    try {
+      data = text ? JSON.parse(text) : {};
+    } catch {
+      // If response is not JSON (e.g. HTML error page from server)
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status} ${response.statusText}`);
+      }
+      // If OK but not JSON, return empty object
+      data = {};
+    }
 
     if (!response.ok) {
-      throw new Error(data.error || data.message || data.detail || 'Request failed');
+      throw new Error(data.error || data.message || data.detail || data.non_field_errors?.[0] || `Request failed: ${response.status}`);
     }
 
     return data;
