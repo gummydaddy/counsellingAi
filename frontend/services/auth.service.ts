@@ -2,7 +2,7 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'institution_admin' | 'institution_staff' | 'administration_admin' | 'administration_staff';
   createdAt: string;
   firstName?: string;
   lastName?: string;
@@ -16,12 +16,94 @@ export interface AuthResponse {
   refresh?: string;
 }
 
+// Institution/Administration types
+export interface InstitutionAdminProfile {
+  id: string;
+  user: string;
+  user_email: string;
+  user_name: string;
+  organization: string;
+  organization_name: string;
+  organization_type: 'institute' | 'administration';
+  role: 'institute_admin' | 'institute_staff' | 'administration_admin' | 'administration_staff';
+  is_primary_admin: boolean;
+  can_manage_users: boolean;
+  can_view_analytics: boolean;
+  status: 'active' | 'inactive' | 'suspended';
+  assigned_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstitutionUserAssociation {
+  id: string;
+  institution: string;
+  institution_name: string;
+  user: string;
+  user_email: string;
+  user_name: string;
+  user_first_name: string;
+  user_last_name: string;
+  user_phone: string | null;
+  user_date_joined: string;
+  association_type: 'student' | 'patient' | 'client' | 'member' | 'other';
+  status: 'active' | 'inactive' | 'archived';
+  added_by: string;
+  added_by_name: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface InstitutionDashboardData {
+  institution: {
+    id: string;
+    legal_name: string;
+    display_name: string;
+    slug: string;
+    organization_type: string;
+    registration_number: string;
+    country: string;
+    status: string;
+    institution_type: 'institute' | 'administration';
+    institution_status: string;
+    institution_enabled_at: string | null;
+    institution_enabled_by: string | null;
+    created_by: string;
+    approved_by: string | null;
+    approved_at: string | null;
+    created_at: string;
+    updated_at: string;
+  };
+  admin_profile: InstitutionAdminProfile;
+  total_users: number;
+  user_counts: Record<string, number>;
+  associations: InstitutionUserAssociation[];
+}
+
+export interface UserSearchResult {
+  id: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  phone_number: string | null;
+  created_at: string;
+}
+
+export interface InstitutionLoginResponse {
+  user: User;
+  institution_admin_profile: InstitutionAdminProfile;
+  access: string;
+  refresh: string;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 class AuthService {
   private readonly CURRENT_USER_KEY = 'counsellingAi_currentUser';
   private readonly ACCESS_TOKEN_KEY = 'counsellingAi_accessToken';
   private readonly REFRESH_TOKEN_KEY = 'counsellingAi_refreshToken';
+  private readonly INSTITUTION_PROFILE_KEY = 'counsellingAi_institutionProfile';
 
   private async request<T>(endpoint: string, options: RequestInit & { skipAuth?: boolean } = {}): Promise<T> {
     const { skipAuth, headers: customHeaders, ...fetchOptions } = options;
@@ -165,6 +247,193 @@ class AuthService {
   }
 
   /**
+   * Institution/Administration login
+   */
+  async institutionLogin(email: string, password: string, institutionId?: string): Promise<{ success: boolean; message: string; data?: InstitutionLoginResponse }> {
+    try {
+      const body: Record<string, any> = {
+        email: email.toLowerCase(),
+        password,
+      };
+      if (institutionId) {
+        body.institution_id = institutionId;
+      }
+
+      const data = await this.request<InstitutionLoginResponse>('/organizations/institution/login/', {
+        method: 'POST',
+        skipAuth: true,
+        body: JSON.stringify(body),
+      });
+
+      if (data.access && data.refresh) {
+        this.setTokens(data.access, data.refresh);
+        // Store institution profile separately
+        localStorage.setItem(this.INSTITUTION_PROFILE_KEY, JSON.stringify(data.institution_admin_profile));
+      }
+
+      // Map user with institution role
+      const user = this.mapDjangoUser(data.user);
+      user.role = data.institution_admin_profile.role;
+      this.setCurrentUser(user);
+
+      return { success: true, message: 'Institution login successful', data };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Institution login failed';
+      return { success: false, message };
+    }
+  }
+
+  /**
+   * Get institution dashboard data
+   */
+  async getInstitutionDashboard(institutionId?: string): Promise<InstitutionDashboardData | null> {
+    try {
+      let endpoint = '/organizations/institution/dashboard/';
+      if (institutionId) {
+        endpoint += `?institution_id=${institutionId}`;
+      }
+      
+      const data = await this.request<InstitutionDashboardData>(endpoint, {
+        method: 'GET',
+      });
+      return data;
+    } catch (error: unknown) {
+      console.error('Failed to fetch institution dashboard:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Search platform users for institution association
+   */
+  async searchInstitutionUsers(query: string, institutionId?: string, limit = 50): Promise<UserSearchResult[]> {
+    try {
+      let endpoint = `/organizations/institution/users/search/?q=${encodeURIComponent(query)}&limit=${limit}`;
+      if (institutionId) {
+        endpoint += `&institution_id=${institutionId}`;
+      }
+      
+      const data = await this.request<UserSearchResult[]>(endpoint, {
+        method: 'GET',
+      });
+      return data;
+    } catch (error: unknown) {
+      console.error('Failed to search institution users:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Associate a user with an institution
+   */
+  async associateInstitutionUser(
+    userId: string,
+    associationType: 'student' | 'patient' | 'client' | 'member' | 'other' = 'member',
+    notes: string = '',
+    institutionId?: string
+  ): Promise<{ success: boolean; message: string; association?: InstitutionUserAssociation }> {
+    try {
+      const body: Record<string, any> = {
+        user_id: userId,
+        association_type: associationType,
+        notes,
+      };
+      if (institutionId) {
+        body.institution_id = institutionId;
+      }
+
+      const data = await this.request<InstitutionUserAssociation>('/organizations/institution/users/associate/', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+
+      return { success: true, message: 'User associated successfully', association: data };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to associate user';
+      return { success: false, message };
+    }
+  }
+
+  /**
+   * Get institution user associations (paginated)
+   */
+  async getInstitutionAssociations(
+    institutionId?: string,
+    params?: {
+      association_type?: string;
+      status?: string;
+      page?: number;
+      page_size?: number;
+    }
+  ): Promise<{ results: InstitutionUserAssociation[]; total: number; page: number; pages: number; has_next: boolean; has_previous: boolean } | null> {
+    try {
+      let endpoint = '/organizations/institution/associations/';
+      const queryParams = new URLSearchParams();
+      if (institutionId) queryParams.append('institution_id', institutionId);
+      if (params?.association_type) queryParams.append('association_type', params.association_type);
+      if (params?.status) queryParams.append('status', params.status);
+      if (params?.page) queryParams.append('page', params.page.toString());
+      if (params?.page_size) queryParams.append('page_size', params.page_size.toString());
+      if (queryParams.toString()) endpoint += `?${queryParams.toString()}`;
+
+      const data = await this.request<{ results: InstitutionUserAssociation[]; total: number; page: number; pages: number; has_next: boolean; has_previous: boolean }>(endpoint, {
+        method: 'GET',
+      });
+      return data;
+    } catch (error: unknown) {
+      console.error('Failed to fetch institution associations:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Update an institution user association
+   */
+  async updateInstitutionAssociation(
+    associationId: string,
+    updates: { association_type?: string; notes?: string },
+    institutionId?: string
+  ): Promise<{ success: boolean; message: string; association?: InstitutionUserAssociation }> {
+    try {
+      const body: Record<string, any> = { ...updates };
+      if (institutionId) body.institution_id = institutionId;
+
+      const data = await this.request<InstitutionUserAssociation>(`/organizations/institution/associations/${associationId}/`, {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      });
+
+      return { success: true, message: 'Association updated', association: data };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to update association';
+      return { success: false, message };
+    }
+  }
+
+  /**
+   * Remove an institution user association
+   */
+  async removeInstitutionAssociation(
+    associationId: string,
+    institutionId?: string
+  ): Promise<{ success: boolean; message: string }> {
+    try {
+      const endpoint = institutionId 
+        ? `/organizations/institution/associations/${associationId}/?institution_id=${institutionId}`
+        : `/organizations/institution/associations/${associationId}/`;
+
+      await this.request(endpoint, {
+        method: 'DELETE',
+      });
+
+      return { success: true, message: 'Association removed' };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to remove association';
+      return { success: false, message };
+    }
+  }
+
+  /**
    * Logout
    */
   async logout(): Promise<void> {
@@ -177,6 +446,7 @@ class AuthService {
     } finally {
       this.clearTokens();
       localStorage.removeItem(this.CURRENT_USER_KEY);
+      localStorage.removeItem(this.INSTITUTION_PROFILE_KEY);
     }
   }
 
@@ -191,6 +461,36 @@ class AuthService {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Get current institution profile
+   */
+  getInstitutionProfile(): InstitutionAdminProfile | null {
+    const profileStr = localStorage.getItem(this.INSTITUTION_PROFILE_KEY);
+    if (!profileStr) return null;
+    try {
+      return JSON.parse(profileStr) as InstitutionAdminProfile;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Check if user is institution admin
+   */
+  isInstitutionAdmin(): boolean {
+    const user = this.getCurrentUser();
+    const profile = this.getInstitutionProfile();
+    return !!user && !!profile && user.role.startsWith('institute') || user.role.startsWith('administration');
+  }
+
+  /**
+   * Check if user is institution admin with manage users permission
+   */
+  canManageInstitutionUsers(): boolean {
+    const profile = this.getInstitutionProfile();
+    return profile?.can_manage_users === true;
   }
 
   /**
@@ -237,6 +537,7 @@ class AuthService {
     } catch {
       this.clearTokens();
       localStorage.removeItem(this.CURRENT_USER_KEY);
+      localStorage.removeItem(this.INSTITUTION_PROFILE_KEY);
       return false;
     }
   }
@@ -297,10 +598,6 @@ class AuthService {
 
   /**
    * Create a new user (admin)
-   *
-   * Note: uses the public register endpoint — the backend currently has no
-   * endpoint that sets is_staff/is_superuser, so the created user is a
-   * regular user until promoted in Django admin.
    */
   async createAdminUser(
     name: string,

@@ -12,8 +12,14 @@ router.register(r"applications", views.OrganizationApplicationViewSet, basename=
 router.register(r"memberships", views.OrganizationMembershipViewSet, basename="organization-membership")
 router.register(r"roles", views.OrganizationRoleViewSet, basename="organization-role")
 router.register(r"profiles", views.OrganizationProfileViewSet, basename="organization-profile")
+router.register(r"institution/associations", views.InstitutionUserAssociationViewSet, basename="institution-associations")
 
 urlpatterns = [
     path("", include(router.urls)),
     path("available/", views.AvailableOrganizationsView.as_view(), name="available-organizations"),
+    # Institution/Administration endpoints
+    path("institution/login/", views.InstitutionLoginView.as_view(), name="institution-login"),
+    path("institution/dashboard/", views.InstitutionDashboardView.as_view(), name="institution-dashboard"),
+    path("institution/users/search/", views.InstitutionUserSearchView.as_view(), name="institution-user-search"),
+    path("institution/users/associate/", views.InstitutionAssociateUserView.as_view(), name="institution-associate-user"),
 ]

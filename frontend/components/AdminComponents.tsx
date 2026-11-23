@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { authService, User } from '../services/auth.service.ts';
 
-const AdminComponents: React.FC = () => {
+interface Props {
+  onInstitutionLogin?: () => void;
+}
+
+const AdminComponents: React.FC<Props> = ({ onInstitutionLogin }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [view, setView] = useState<'login' | 'signup' | 'dashboard'>('login');
@@ -243,6 +247,23 @@ const AdminComponents: React.FC = () => {
                     Create Account
                   </button>
                 </form>
+              )}
+
+              {/* Institution Login Button */}
+              {onInstitutionLogin && (
+                <div className="pt-4 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={onInstitutionLogin}
+                    className="w-full bg-blue-600 text-white py-3 px-6 rounded-xl font-bold hover:bg-blue-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <span>🏛️</span>
+                    <span>Institution / Administration Login</span>
+                  </button>
+                  <p className="text-xs text-center text-slate-500 mt-2">
+                    For Institute and Administration accounts enabled by Superadmin
+                  </p>
+                </div>
               )}
             </div>
           ) : (

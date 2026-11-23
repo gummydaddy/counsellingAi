@@ -2,7 +2,8 @@
 
 from organizations.models import (
     Organization, OrganizationApplication, OrganizationProfile,
-    OrganizationMembership, OrganizationRole
+    OrganizationMembership, OrganizationRole,
+    InstitutionAdminProfile, InstitutionUserAssociation
 )
 from common.models import Address
 from identity.models import User
@@ -17,11 +18,13 @@ class OrganizationSerializer(serializers.ModelSerializer):
         fields = [
             "id", "legal_name", "display_name", "slug", "organization_type",
             "registration_number", "country", "status",
+            "institution_type", "institution_status", "institution_enabled_at", "institution_enabled_by",
             "created_by", "approved_by", "approved_at",
             "created_at", "updated_at",
         ]
         read_only_fields = [
             "id", "slug", "created_by", "approved_by", "approved_at",
+            "institution_enabled_at", "institution_enabled_by",
             "created_at", "updated_at",
         ]
 
@@ -29,9 +32,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
 class OrganizationListSerializer(serializers.ModelSerializer):
     """Serializer for organization list (dropdown)."""
 
+    institution_type = serializers.CharField(read_only=True)
+    institution_status = serializers.CharField(read_only=True)
+
     class Meta:
         model = Organization
-        fields = ["id", "display_name", "organization_type", "status"]
+        fields = ["id", "display_name", "organization_type", "status", "institution_type", "institution_status"]
 
 
 class OrganizationApplicationSerializer(serializers.ModelSerializer):
@@ -108,3 +114,92 @@ class OrganizationProfileSerializer(serializers.ModelSerializer):
         if obj.cover_image:
             return obj.cover_image.url
         return None
+
+
+# Institution/Administration Serializers
+
+class InstitutionAdminProfileSerializer(serializers.ModelSerializer):
+    """Serializer for InstitutionAdminProfile model."""
+
+    user_email = serializers.CharField(source="user.email", read_only=True)
+    user_name = serializers.CharField(source="user.get_short_name", read_only=True)
+    organization_name = serializers.CharField(source="organization.display_name", read_only=True)
+    organization_type = serializers.CharField(source="organization.institution_type", read_only=True)
+
+    class Meta:
+        model = InstitutionAdminProfile
+        fields = [
+            "id", "user", "user_email", "user_name", "organization", "organization_name",
+            "organization_type", "role", "is_primary_admin", "can_manage_users",
+            "can_view_analytics", "status", "assigned_by", "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InstitutionUserAssociationSerializer(serializers.ModelSerializer):
+    """Serializer for InstitutionUserAssociation model."""
+
+    user_email = serializers.CharField(source="user.email", read_only=True)
+    user_name = serializers.CharField(source="user.get_short_name", read_only=True)
+    user_first_name = serializers.CharField(source="user.first_name", read_only=True)
+    user_last_name = serializers.CharField(source="user.last_name", read_only=True)
+    user_phone = serializers.CharField(source="user.phone_number", read_only=True)
+    user_date_joined = serializers.DateTimeField(source="user.created_at", read_only=True)
+    added_by_name = serializers.CharField(source="added_by.get_short_name", read_only=True)
+    institution_name = serializers.CharField(source="institution.display_name", read_only=True)
+
+    class Meta:
+        model = InstitutionUserAssociation
+        fields = [
+            "id", "institution", "institution_name", "user", "user_email", "user_name",
+            "user_first_name", "user_last_name", "user_phone", "user_date_joined",
+            "association_type", "status", "added_by", "added_by_name", "notes",
+            "created_at", "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
+
+
+class InstitutionLoginSerializer(serializers.Serializer):
+    """Serializer for institution login."""
+
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    institution_id = serializers.UUIDField(required=False, help_text="Optional: specific institution ID if user has multiple")
+
+
+class InstitutionLoginResponseSerializer(serializers.Serializer):
+    """Serializer for institution login response."""
+
+    user = serializers.DictField()
+    institution_admin_profile = InstitutionAdminProfileSerializer()
+    access = serializers.CharField()
+    refresh = serializers.CharField()
+
+
+class InstitutionDashboardSerializer(serializers.Serializer):
+    """Serializer for institution dashboard data."""
+
+    institution = OrganizationSerializer()
+    admin_profile = InstitutionAdminProfileSerializer()
+    total_users = serializers.IntegerField()
+    user_counts = serializers.DictField()
+    associations = InstitutionUserAssociationSerializer(many=True)
+
+
+class UserSearchResultSerializer(serializers.ModelSerializer):
+    """Serializer for user search results."""
+
+    class Meta:
+        model = User
+        fields = ["id", "email", "first_name", "last_name", "phone_number", "created_at"]
+
+
+class AssociateUserSerializer(serializers.Serializer):
+    """Serializer for associating a user with an institution."""
+
+    user_id = serializers.UUIDField()
+    association_type = serializers.ChoiceField(
+        choices=InstitutionUserAssociation._meta.get_field("association_type").choices,
+        default="member"
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")

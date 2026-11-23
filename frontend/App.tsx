@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { AppStep, Answer, AnalysisResult, Question, MCQAnswer, SessionType, CounsellingSession, SessionStatus, AssessmentPhase } from './types.ts';
-import type { User } from './services/auth.service.ts';
+import type { User, InstitutionLoginResponse } from './services/auth.service.ts';
 import { SESSION_MCQ_POOLS } from './constants.ts';
 import { analyzeStudentAnswers, generatePhase1Questions, generateRapportQuestion, generateDeepDiveQuestions } from './services/geminiService.ts';
 import { KnowledgeBaseService } from './services/knowledgeBaseService.ts';
@@ -15,6 +15,8 @@ import { CounselorNotesLayer } from './components/CounselorNotesLayer.tsx';
 import AdminComponents from './components/AdminComponents.tsx';
 import SessionSidebar from './components/SessionSidebar.tsx';
 import SessionDetailView from './components/SessionDetailView.tsx';
+import InstitutionLoginComponent from './components/InstitutionLoginComponent.tsx';
+import InstitutionDashboardComponent from './components/InstitutionDashboardComponent.tsx';
 
 
 const App: React.FC = () => {
@@ -22,6 +24,8 @@ const App: React.FC = () => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [showInstitutionLogin, setShowInstitutionLogin] = useState(false);
+  const [showInstitutionDashboard, setShowInstitutionDashboard] = useState(false);
   const [sessionType, setSessionType] = useState<SessionType>('school');
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -97,10 +101,10 @@ const App: React.FC = () => {
 
   // Load sessions when user authenticates
   useEffect(() => {
-    if (currentUser) {
+    if (currentUser && !showInstitutionDashboard) {
       loadSessions(currentUser.id);
     }
-  }, [currentUser, loadSessions]);
+  }, [currentUser, loadSessions, showInstitutionDashboard]);
 
   // PRODUCTION UPDATE: Fetch stats asynchronously (mimicking DB call)
   useEffect(() => {
@@ -405,68 +409,113 @@ const App: React.FC = () => {
     setStep(AppStep.WELCOME);
   };
 
+  // Institution login handlers
+  const handleInstitutionLoginSuccess = (data: InstitutionLoginResponse) => {
+    setCurrentUser(data.user);
+    setIsAuthenticated(true);
+    setShowInstitutionLogin(false);
+    setShowInstitutionDashboard(true);
+  };
+
+  const handleBackToMainLogin = () => {
+    setShowInstitutionLogin(false);
+  };
+
+  const handleInstitutionLogout = async () => {
+    await authService.logout();
+    setCurrentUser(null);
+    setIsAuthenticated(false);
+    setShowInstitutionDashboard(false);
+  };
+
+  const handleBackToMainFromInstitution = () => {
+    setShowInstitutionDashboard(false);
+    // Don't logout, just switch view - user can go back to institution dashboard
+  };
+
   // Handle Assessment component's internal phase changes
   const handleAssessmentPhaseChange = useCallback((newPhase: any) => {
     // The Assessment component manages its own phases internally
     // We just need to ensure the session is updated when phases complete
   }, []);
 
-    if (!isAuthenticated) {
-      return <AdminComponents />;
-    }
-
-    // Admin panel takes precedence when explicitly requested
-    if (showAdminPanel) {
-      return <AdminComponents />;
-    }
-
-    // If viewing a past session, show the detail view
-    if (viewingSession) {
+  // Institution login screen
+  if (showInstitutionLogin) {
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
-        <SessionSidebar
-          sessions={sessions}
-          activeSessionId={activeSessionId}
-          isCollapsed={sidebarCollapsed}
-          onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onNewSession={handleNewSession}
-          onSelectSession={handleSelectPastSession}
-          onDeleteSession={handleDeleteSession}
-          onContinueSession={handleContinueSession}
-        />
-        <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
-          <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
-            <div className="flex items-center space-x-3">
-              <div className="flex items-center space-x-2 cursor-pointer" onClick={handleReset}>
-                <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
-                <span className="text-xl font-bold text-slate-800 tracking-tight">Counselling AI</span>
-              </div>
-            </div>
-            <div className="flex items-center space-x-4">
-              <div className="hidden sm:flex flex-col items-end text-[10px] uppercase font-bold text-slate-400">
-                <span>User: {currentUser?.name || 'Guest'}</span>
-              </div>
-              <button
-                onClick={handleNewSession}
-                className="px-4 py-2 bg-brand-600 text-white text-xs rounded-full font-bold hover:bg-brand-700 transition-colors"
-              >
-                + New Session
-              </button>
-              <button
-                onClick={() => authService.logout()}
-                className="px-3 py-1 bg-red-600 text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors whitespace-nowrap"
-              >
-                Sign Out
-              </button>
-            </div>
-          </div>
-        </header>
-        <main className="flex-grow" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
-          <SessionDetailView sessionId={activeSessionId || ''} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
-        </main>
-      </div>
+      <InstitutionLoginComponent 
+        onLoginSuccess={handleInstitutionLoginSuccess}
+        onBackToMainLogin={handleBackToMainLogin}
+      />
     );
   }
+
+  // Institution dashboard
+  if (showInstitutionDashboard) {
+    return (
+      <InstitutionDashboardComponent 
+        onLogout={handleInstitutionLogout}
+        onBackToMain={handleBackToMainFromInstitution}
+      />
+    );
+  }
+
+  // Not authenticated - show admin/login screen
+  if (!isAuthenticated) {
+    return <AdminComponents onInstitutionLogin={() => setShowInstitutionLogin(true)} />;
+  }
+
+  // Admin panel takes precedence when explicitly requested
+  if (showAdminPanel) {
+    return <AdminComponents onInstitutionLogin={() => setShowInstitutionLogin(true)} />;
+  }
+
+  // If viewing a past session, show the detail view
+  if (viewingSession) {
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
+      <SessionSidebar
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        isCollapsed={sidebarCollapsed}
+        onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
+        onNewSession={handleNewSession}
+        onSelectSession={handleSelectPastSession}
+        onDeleteSession={handleDeleteSession}
+        onContinueSession={handleContinueSession}
+      />
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-20 px-4 py-4">
+        <div className="flex items-center justify-between" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2 cursor-pointer" onClick={handleReset}>
+              <div className="w-8 h-8 bg-brand-600 rounded-lg flex items-center justify-center text-white font-bold">M</div>
+              <span className="text-xl font-bold text-slate-800 tracking-tight">Counselling AI</span>
+            </div>
+          </div>
+          <div className="flex items-center space-x-4">
+            <div className="hidden sm:flex flex-col items-end text-[10px] uppercase font-bold text-slate-400">
+              <span>User: {currentUser?.name || 'Guest'}</span>
+            </div>
+            <button
+              onClick={handleNewSession}
+              className="px-4 py-2 bg-brand-600 text-white text-xs rounded-full font-bold hover:bg-brand-700 transition-colors"
+            >
+              + New Session
+            </button>
+            <button
+              onClick={() => authService.logout()}
+              className="px-3 py-1 bg-red-600 text-white text-xs rounded-full font-bold hover:bg-red-700 transition-colors whitespace-nowrap"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </header>
+      <main className="flex-grow" style={{ marginLeft: sidebarCollapsed ? '0' : '288px', transition: 'margin-left 0.3s ease' }}>
+        <SessionDetailView sessionId={activeSessionId || ''} onBack={handleBackFromSessionView} onRetry={handleRetrySession} />
+      </main>
+    </div>
+  );
+}
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
@@ -504,15 +553,28 @@ const App: React.FC = () => {
                       Admin Panel
                     </button>
                   )}
-                {step !== AppStep.WELCOME && (
-                  <span className="px-3 py-1 bg-slate-100 text-slate-500 text-xs rounded-full font-bold uppercase tracking-wider">
-                    {sessionType}
-                  </span>
-                )}
-                {currentSession && currentSession.status === 'error' && (
-                  <span className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded-full font-bold uppercase tracking-wider">
-                    Error - Click to Retry
-                  </span>
+                {currentUser?.role?.startsWith('institute') || currentUser?.role?.startsWith('administration') ? (
+                  <>
+                    <button
+                      onClick={() => setShowInstitutionDashboard(true)}
+                      className="px-3 py-1 bg-blue-600 text-white text-xs rounded-full font-bold hover:bg-blue-700 transition-colors"
+                    >
+                      Institution Dashboard
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {step !== AppStep.WELCOME && (
+                      <span className="px-3 py-1 bg-slate-100 text-slate-500 text-xs rounded-full font-bold uppercase tracking-wider">
+                        {sessionType}
+                      </span>
+                    )}
+                    {currentSession && currentSession.status === 'error' && (
+                      <span className="px-3 py-1 bg-red-100 text-red-600 text-xs rounded-full font-bold uppercase tracking-wider">
+                        Error - Click to Retry
+                      </span>
+                    )}
+                  </>
                 )}
                 <button
                   onClick={() => authService.logout()}
