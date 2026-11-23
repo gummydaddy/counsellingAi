@@ -116,7 +116,7 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
       association_type: newType as any,
       notes: newNotes,
     }, institutionId || undefined);
-    
+
     if (result.success) {
       showMessage(result.message, 'success');
       loadAssociations(associationsPage);
@@ -153,11 +153,10 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
               <h1 className="text-xl font-bold text-slate-900">{institution?.display_name}</h1>
               <p className="text-sm text-slate-500 capitalize">{institution?.institution_type} Dashboard</p>
             </div>
-            <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-              institution?.institution_status === 'active' 
-                ? 'bg-emerald-100 text-emerald-800' 
+            <span className={`px-3 py-1 rounded-full text-xs font-bold ${institution?.institution_status === 'active'
+                ? 'bg-emerald-100 text-emerald-800'
                 : 'bg-red-100 text-red-800'
-            }`}>
+              }`}>
               {institution?.institution_status}
             </span>
           </div>
@@ -184,11 +183,10 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
 
       {/* Messages */}
       {message && (
-        <div className={`max-w-7xl mx-auto px-4 py-2 ${
-          message.type === 'success' 
-            ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200' 
+        <div className={`max-w-7xl mx-auto px-4 py-2 ${message.type === 'success'
+            ? 'bg-emerald-50 text-emerald-800 border-b border-emerald-200'
             : 'bg-red-50 text-red-800 border-b border-red-200'
-        }`}>
+          }`}>
           {message.text}
         </div>
       )}
@@ -199,32 +197,29 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
           <nav className="flex space-x-8" aria-label="Dashboard tabs">
             <button
               onClick={() => setActiveTab('overview')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'overview'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'overview'
                   ? 'border-brand-600 text-brand-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+                }`}
             >
               Overview
             </button>
             <button
               onClick={() => setActiveTab('users')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                activeTab === 'users'
+              className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'users'
                   ? 'border-brand-600 text-brand-600'
                   : 'border-transparent text-slate-500 hover:text-slate-700'
-              }`}
+                }`}
             >
               Users ({dashboardData?.total_users || 0})
             </button>
             {adminProfile?.can_manage_users && (
               <button
                 onClick={() => setActiveTab('add-user')}
-                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                  activeTab === 'add-user'
+                className={`py-4 px-1 border-b-2 font-medium text-sm transition-colors ${activeTab === 'add-user'
                     ? 'border-brand-600 text-brand-600'
                     : 'border-transparent text-slate-500 hover:text-slate-700'
-                }`}
+                  }`}
               >
                 Add User
               </button>
@@ -434,21 +429,19 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
                               </div>
                             </td>
                             <td className="px-4 py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                association.association_type === 'student' ? 'bg-blue-100 text-blue-800' :
-                                association.association_type === 'patient' ? 'bg-emerald-100 text-emerald-800' :
-                                association.association_type === 'client' ? 'bg-purple-100 text-purple-800' :
-                                'bg-slate-100 text-slate-800'
-                              }`}>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${association.association_type === 'student' ? 'bg-blue-100 text-blue-800' :
+                                  association.association_type === 'patient' ? 'bg-emerald-100 text-emerald-800' :
+                                    association.association_type === 'client' ? 'bg-purple-100 text-purple-800' :
+                                      'bg-slate-100 text-slate-800'
+                                }`}>
                                 {association.association_type}
                               </span>
                             </td>
                             <td className="px-4 py-4">
-                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                association.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
-                                association.status === 'inactive' ? 'bg-yellow-100 text-yellow-800' :
-                                'bg-slate-100 text-slate-800'
-                              }`}>
+                              <span className={`px-2 py-1 rounded-full text-xs font-medium ${association.status === 'active' ? 'bg-emerald-100 text-emerald-800' :
+                                  association.status === 'inactive' ? 'bg-yellow-100 text-yellow-800' :
+                                    'bg-slate-100 text-slate-800'
+                                }`}>
                                 {association.status}
                               </span>
                             </td>
@@ -475,7 +468,8 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
                                   </>
                                 )}
                               </div>
-                            </td                          </tr>
+                            </td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
@@ -517,7 +511,7 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
             <div className="bg-white rounded-xl border border-slate-200 p-6">
               <h3 className="text-lg font-bold text-slate-900 mb-4">Search Platform Users</h3>
               <p className="text-slate-500 mb-4">Search for existing users on the platform to add to your institution.</p>
-              
+
               <div className="flex gap-2 mb-4">
                 <input
                   type="text"
@@ -544,11 +538,10 @@ const InstitutionDashboardComponent: React.FC<Props> = ({ onLogout, onBackToMain
                       <button
                         key={user.id}
                         onClick={() => setSelectedUser(user)}
-                        className={`w-full text-left p-3 border rounded-lg transition-colors ${
-                          selectedUser?.id === user.id
+                        className={`w-full text-left p-3 border rounded-lg transition-colors ${selectedUser?.id === user.id
                             ? 'border-brand-600 bg-brand-50'
                             : 'border-slate-200 hover:bg-slate-50'
-                        }`}
+                          }`}
                       >
                         <p className="font-medium text-slate-900">
                           {user.first_name} {user.last_name}
