@@ -17,6 +17,7 @@ import SessionSidebar from './components/SessionSidebar.tsx';
 import SessionDetailView from './components/SessionDetailView.tsx';
 import InstitutionLoginComponent from './components/InstitutionLoginComponent.tsx';
 import InstitutionDashboardComponent from './components/InstitutionDashboardComponent.tsx';
+import InstitutionSignupComponent from './components/InstitutionSignupComponent.tsx';
 
 
 const App: React.FC = () => {
@@ -25,6 +26,7 @@ const App: React.FC = () => {
   const [step, setStep] = useState<AppStep>(AppStep.WELCOME);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showInstitutionLogin, setShowInstitutionLogin] = useState(false);
+  const [showInstitutionSignup, setShowInstitutionSignup] = useState(false);
   const [showInstitutionDashboard, setShowInstitutionDashboard] = useState(false);
   const [sessionType, setSessionType] = useState<SessionType>('school');
   const [result, setResult] = useState<AnalysisResult | null>(null);
@@ -417,8 +419,20 @@ const App: React.FC = () => {
     setShowInstitutionDashboard(true);
   };
 
+  const handleInstitutionSignupSuccess = (data: any) => {
+    // Show success message and redirect to login
+    alert(data.message || 'Application submitted successfully! Please wait for admin approval.');
+    setShowInstitutionSignup(false);
+    setShowInstitutionLogin(true);
+  };
+
   const handleBackToMainLogin = () => {
     setShowInstitutionLogin(false);
+  };
+
+  const handleBackToLoginFromSignup = () => {
+    setShowInstitutionSignup(false);
+    setShowInstitutionLogin(true);
   };
 
   const handleInstitutionLogout = async () => {
@@ -438,6 +452,16 @@ const App: React.FC = () => {
     // The Assessment component manages its own phases internally
     // We just need to ensure the session is updated when phases complete
   }, []);
+
+  // Institution signup screen
+  if (showInstitutionSignup) {
+    return (
+      <InstitutionSignupComponent 
+        onSignupSuccess={handleInstitutionSignupSuccess}
+        onBackToLogin={handleBackToLoginFromSignup}
+      />
+    );
+  }
 
   // Institution login screen
   if (showInstitutionLogin) {

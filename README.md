@@ -22,8 +22,11 @@ A complete Django implementation featuring:
 
 #### Organization System
 - **Organization Application Workflow**: Users submit applications → Admin review → Approved organizations created
+- **Institution/Administration Support**: Specialized organization types for institutes (educational) and administrations (government/regulatory) with dedicated login and dashboard
 - **Organization Membership**: Users can belong to multiple organizations via explicit through model
 - **Role-Based Permissions**: OWNER, ADMIN, MANAGER, MEMBER, VIEWER roles with fine-grained checks
+- **Institution Admin Roles**: INSTITUTE_ADMIN, INSTITUTE_STAFF, ADMINISTRATION_ADMIN, ADMINISTRATION_STAFF with permission controls
+- **Institution User Association**: Track users (students, patients, clients) associated with institutions
 - **Organization Profile**: Logo, description, website, contact information
 - **Tenant Isolation**: Every organization endpoint enforces membership verification
 
@@ -49,6 +52,8 @@ A complete Django implementation featuring:
 6. **UUID Identifiers** - Never expose sequential database IDs
 7. **Server-Side Tenant Isolation** - Never trust client-provided organization IDs
 8. **Abstracted Payment Providers** - Easy to switch between Stripe, Razorpay, etc.
+9. **Institution/Administration Login** - Dedicated auth flow for institutes and administrations
+10. **Institution Dashboard** - Manage associated users (students/patients/clients) with search and add functionality
 
 ## Project Structure
 
@@ -56,7 +61,7 @@ A complete Django implementation featuring:
 project/
 ├── config/             # Django project settings
 ├── identity/          # Custom User, profiles, addresses, auth
-├── organizations/     # Organizations, applications, memberships, roles
+├── organizations/     # Organizations, applications, memberships, roles, institution admin profiles, user associations
 ├── subscriptions/     # Plans, subscriptions, payment abstraction
 ├── audit/             # Audit event logging
 └── common/            # Constants, validators, utilities
@@ -96,6 +101,14 @@ project/
 - `POST /api/auth/token/` - JWT login with email/password
 - `POST /api/auth/token/refresh/` - Refresh JWT access token
 - `POST /api/auth/register/` - Register new user
+
+#### Institution/Administration
+- `POST /api/organizations/institution/login/` - Institution/Administration login
+- `POST /api/organizations/institution/signup/` - Institution/Administration signup (creates application)
+- `GET /api/organizations/institution/dashboard/` - Institution dashboard data
+- `GET /api/organizations/institution/users/search/` - Search platform users to associate
+- `POST /api/organizations/institution/users/associate/` - Associate user with institution
+- `GET/PATCH/DELETE /api/organizations/institution/associations/` - Manage user associations
 
 #### Organizations
 - `GET /api/organizations/available/` - List approved organizations
@@ -151,6 +164,12 @@ The implementation adheres to all 50 design rules including:
 - Address model with privacy protections
 - Seed data management command
 - API endpoint skeleton
+- **Institution/Administration support (institute/administration types)**
+- **Institution/Administration authentication (separate login flow)**
+- **Institution Dashboard with user management (search, add, remove, filter)**
+- **Institution Signup (creates organization application for review)**
+- **Institution Admin Profiles with role-based permissions**
+- **Institution User Associations (students, patients, clients, members)**
 
 🔄 In Progress:
 - Full test suite development
@@ -166,3 +185,13 @@ The implementation adheres to all 50 design rules including:
 - Organization hierarchy and parent/sub-org relationships
 - SCIM provisioning support
 - Advanced geocoding and address normalization
+
+## Next Steps
+
+1. **Complete Test Suite** - Add comprehensive unit and integration tests for all API endpoints
+2. **CSRF Protection** - Implement proper CSRF protection for API endpoints
+3. **Password Reset Flow** - Add email-based password reset functionality
+4. **Payment Integration** - Connect abstract payment providers (Stripe, Razorpay)
+5. **Email Notifications** - Add email notifications for application status changes
+6. **Frontend Institution Dashboard Enhancements** - Add analytics, reporting, and bulk operations
+7. **Documentation** - Create detailed API documentation with Swagger/OpenAPI

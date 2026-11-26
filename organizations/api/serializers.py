@@ -3,7 +3,8 @@
 from organizations.models import (
     Organization, OrganizationApplication, OrganizationProfile,
     OrganizationMembership, OrganizationRole,
-    InstitutionAdminProfile, InstitutionUserAssociation
+    InstitutionAdminProfile, InstitutionUserAssociation,
+    INSTITUTION_TYPES
 )
 from common.models import Address
 from identity.models import User
@@ -203,3 +204,31 @@ class AssociateUserSerializer(serializers.Serializer):
         default="member"
     )
     notes = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class InstitutionSignupSerializer(serializers.Serializer):
+    """Serializer for institution signup (creates organization application)."""
+    
+    # User account details
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True, min_length=8)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    phone_number = serializers.CharField(max_length=32, required=False, allow_blank=True, allow_null=True)
+    
+    # Institution details
+    institution_type = serializers.ChoiceField(choices=INSTITUTION_TYPES)
+    legal_name = serializers.CharField(max_length=255)
+    display_name = serializers.CharField(max_length=255)
+    organization_type = serializers.CharField(max_length=100)
+    registration_number = serializers.CharField(max_length=255, required=False, allow_blank=True)
+    country = serializers.CharField(max_length=2)
+    description = serializers.CharField(required=False, allow_blank=True)
+
+
+class InstitutionSignupResponseSerializer(serializers.Serializer):
+    """Serializer for institution signup response."""
+    
+    application = OrganizationApplicationSerializer()
+    user = serializers.DictField()
+    message = serializers.CharField()

@@ -19,6 +19,7 @@ urlpatterns = [
     path("available/", views.AvailableOrganizationsView.as_view(), name="available-organizations"),
     # Institution/Administration endpoints
     path("institution/login/", views.InstitutionLoginView.as_view(), name="institution-login"),
+    path("institution/signup/", views.InstitutionSignupView.as_view(), name="institution-signup"),
     path("institution/dashboard/", views.InstitutionDashboardView.as_view(), name="institution-dashboard"),
     path("institution/users/search/", views.InstitutionUserSearchView.as_view(), name="institution-user-search"),
     path("institution/users/associate/", views.InstitutionAssociateUserView.as_view(), name="institution-associate-user"),

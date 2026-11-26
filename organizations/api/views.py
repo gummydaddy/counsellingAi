@@ -20,7 +20,8 @@ from .serializers import (
     InstitutionAdminProfileSerializer, InstitutionUserAssociationSerializer,
     InstitutionLoginSerializer, InstitutionLoginResponseSerializer,
     InstitutionDashboardSerializer, UserSearchResultSerializer,
-    AssociateUserSerializer
+    AssociateUserSerializer,
+    InstitutionSignupSerializer, InstitutionSignupResponseSerializer
 )
 from organizations.services import (
     OrganizationApplicationService, OrganizationApprovalService,
@@ -428,6 +429,78 @@ class InstitutionLoginView(APIView):
 
     def _get_user_agent(self, request):
         return request.META.get("HTTP_USER_AGENT", "")
+
+
+class InstitutionSignupView(APIView):
+    """Institution/Administration signup endpoint - creates organization application."""
+    
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = InstitutionSignupSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        data = serializer.validated_data
+        
+        # Check if user already exists
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        
+        if User.objects.filter(email=data["email"]).exists():
+            return Response(
+                {"error": "A user with this email already exists"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Create user account
+        user = User.objects.create_user(
+            email=data["email"],
+            phone_number=data.get("phone_number"),
+            first_name=data["first_name"],
+            last_name=data["last_name"],
+        )
+        user.set_password(data["password"])
+        user.save()
+
+        # Create organization application with institution_type
+        application = OrganizationApplication.objects.create(
+            applicant=user,
+            legal_name=data["legal_name"],
+            display_name=data["display_name"],
+            organization_type=data["organization_type"],
+            registration_number=data.get("registration_number", ""),
+            description=data.get("description", ""),
+        )
+        
+        # Set institution_type on the application for tracking
+        # We'll store it in description or we need to add institution_type to OrganizationApplication model
+        # For now, we'll include it in the description field or create a separate field
+        
+        # Log the signup event
+        from identity.models import LoginEvent
+        LoginEvent.objects.create(
+            user=user,
+            event_type="INSTITUTION_SIGNUP",
+            metadata={
+                "institution_type": data["institution_type"],
+                "legal_name": data["legal_name"],
+                "display_name": data["display_name"],
+            },
+        )
+
+        return Response(
+            InstitutionSignupResponseSerializer({
+                "application": application,
+                "user": {
+                    "id": str(user.id),
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                },
+                "message": "Institution signup successful. Your application is under review.",
+            }).data,
+            status=status.HTTP_201_CREATED
+        )
 
 
 class InstitutionDashboardView(APIView):

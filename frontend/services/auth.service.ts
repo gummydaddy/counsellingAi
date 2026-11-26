@@ -97,6 +97,37 @@ export interface InstitutionLoginResponse {
   refresh: string;
 }
 
+export interface InstitutionSignupData {
+  // User account details
+  email: string;
+  password: string;
+  first_name: string;
+  last_name: string;
+  phone_number?: string;
+  // Institution details
+  institution_type: 'institute' | 'administration';
+  legal_name: string;
+  display_name: string;
+  organization_type: string;
+  registration_number?: string;
+  country: string;
+  description?: string;
+}
+
+export interface InstitutionSignupResponse {
+  success: boolean;
+  message: string;
+  application?: {
+    id: string;
+    legal_name: string;
+    display_name: string;
+    organization_type: string;
+    status: string;
+    created_at: string;
+  };
+  user?: User;
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api';
 
 class AuthService {
@@ -279,6 +310,23 @@ class AuthService {
       return { success: true, message: 'Institution login successful', data };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Institution login failed';
+      return { success: false, message };
+    }
+  }
+
+  /**
+   * Institution/Administration signup - creates organization application
+   */
+  async institutionSignup(data: InstitutionSignupData): Promise<InstitutionSignupResponse> {
+    try {
+      const response = await this.request<InstitutionSignupResponse>('/organizations/institution/signup/', {
+        method: 'POST',
+        skipAuth: true,
+        body: JSON.stringify(data),
+      });
+      return response;
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Institution signup failed';
       return { success: false, message };
     }
   }
