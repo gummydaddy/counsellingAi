@@ -485,12 +485,18 @@ const App: React.FC = () => {
 
   // Not authenticated - show admin/login screen
   if (!isAuthenticated) {
-    return <AdminComponents onInstitutionLogin={() => setShowInstitutionLogin(true)} />;
+    return <AdminComponents 
+      onInstitutionLogin={() => setShowInstitutionLogin(true)} 
+      onInstitutionSignup={() => setShowInstitutionSignup(true)} 
+    />;
   }
 
   // Admin panel takes precedence when explicitly requested
   if (showAdminPanel) {
-    return <AdminComponents onInstitutionLogin={() => setShowInstitutionLogin(true)} />;
+    return <AdminComponents 
+      onInstitutionLogin={() => setShowInstitutionLogin(true)} 
+      onInstitutionSignup={() => setShowInstitutionSignup(true)} 
+    />;
   }
 
   // If viewing a past session, show the detail view

@@ -225,6 +225,12 @@ class InstitutionSignupSerializer(serializers.Serializer):
     country = serializers.CharField(max_length=2)
     description = serializers.CharField(required=False, allow_blank=True)
 
+    def validate_phone_number(self, value):
+        """Convert empty string to None to avoid unique constraint violation."""
+        if value == "":
+            return None
+        return value
+
 
 class InstitutionSignupResponseSerializer(serializers.Serializer):
     """Serializer for institution signup response."""

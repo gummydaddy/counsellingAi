@@ -3,9 +3,10 @@ import { authService, User } from '../services/auth.service.ts';
 
 interface Props {
   onInstitutionLogin?: () => void;
+  onInstitutionSignup?: () => void;
 }
 
-const AdminComponents: React.FC<Props> = ({ onInstitutionLogin }) => {
+const AdminComponents: React.FC<Props> = ({ onInstitutionLogin, onInstitutionSignup }) => {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [view, setView] = useState<'login' | 'signup' | 'dashboard'>('login');
@@ -262,6 +263,23 @@ const AdminComponents: React.FC<Props> = ({ onInstitutionLogin }) => {
                   </button>
                   <p className="text-xs text-center text-slate-500 mt-2">
                     For Institute and Administration accounts enabled by Superadmin
+                  </p>
+                </div>
+              )}
+
+              {/* Institution Signup Button */}
+              {onInstitutionSignup && (
+                <div className="pt-4 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={onInstitutionSignup}
+                    className="w-full bg-purple-600 text-white py-3 px-6 rounded-xl font-bold hover:bg-purple-700 transition-all shadow-lg flex items-center justify-center gap-2"
+                  >
+                    <span>📝</span>
+                    <span>Institution / Administration Signup</span>
+                  </button>
+                  <p className="text-xs text-center text-slate-500 mt-2">
+                    Register a new Institute or Administration account
                   </p>
                 </div>
               )}
