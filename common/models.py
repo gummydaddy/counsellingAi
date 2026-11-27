@@ -291,6 +291,22 @@ class ClinicalInsight(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
+    # User and session linkage for data isolation and traceability
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="clinical_insights"
+    )
+    source_session = models.ForeignKey(
+        'CounsellingSession',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="generated_insights"
+    )
+
     session_type = models.CharField(max_length=20, choices=SESSION_TYPES, db_index=True)
     pattern = models.TextField()
     recommendation = models.TextField()
@@ -313,6 +329,7 @@ class ClinicalInsight(models.Model):
         indexes = [
             models.Index(fields=['session_type', '-created_at']),
             models.Index(fields=['confidence_score']),
+            models.Index(fields=['user', 'session_type', '-created_at']),
         ]
 
     def __str__(self):

@@ -251,6 +251,9 @@ class SessionService {
       });
       const session = this.mapSessionDetail(data);
 
+      // Extract clinical insights from completed session (async, non-blocking)
+      this.extractInsights(sessionId).catch(console.error);
+
       // Update cross-session analysis asynchronously
       crossSessionAnalysis.updateUserEmbedding(userId, session);
       crossSessionAnalysis.generateCrossSessionInsights(userId).catch(console.error);
@@ -259,6 +262,19 @@ class SessionService {
     } catch (error) {
       console.warn('Failed to complete session via API, using localStorage:', error);
       return this.completeSessionLocal(userId, sessionId, result);
+    }
+  }
+
+  /**
+   * Extract clinical insights from a completed session
+   */
+  async extractInsights(sessionId: string): Promise<void> {
+    try {
+      await apiRequest(`${SESSIONS_API_BASE}/${sessionId}/extract-insights/`, {
+        method: 'POST',
+      });
+    } catch (error) {
+      console.warn('Failed to extract insights:', error);
     }
   }
 

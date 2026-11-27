@@ -106,7 +106,7 @@ class ClinicalInsightViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'], url_path='semantic-search')
     def semantic_search(self, request):
-        """Semantic search using pgvector (requires pgvector extension)."""
+        """Semantic search using pgvector with fallback for SQLite."""
         query_embedding = request.data.get('embedding')
         session_type = request.data.get('session_type')
         limit = request.data.get('limit', 5)
@@ -118,45 +118,19 @@ class ClinicalInsightViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Use raw SQL for pgvector similarity search
-        from django.db import connection
-        import struct
-
-        # Convert embedding to binary format for pgvector
-        query_vector = struct.pack(f'{len(query_embedding)}f', *query_embedding)
-
-        with connection.cursor() as cursor:
-            sql = '''
-                SELECT id, session_type, pattern, recommendation, confidence_score,
-                       1 - (embedding <=> %s::vector) as similarity
-                FROM common_clinicalinsight
-                WHERE embedding IS NOT NULL
-            '''
-            params = [query_vector]
-
-            if session_type:
-                sql += ' AND session_type = %s'
-                params.append(session_type)
-
-            sql += ' AND (1 - (embedding <=> %s::vector)) > %s'
-            params.extend([query_vector, threshold])
-
-            sql += ' ORDER BY embedding <=> %s::vector LIMIT %s'
-            params.extend([query_vector, limit])
-
-            cursor.execute(sql, params)
-            rows = cursor.fetchall()
-
-        results = []
-        for row in rows:
-            results.append({
-                'id': row[0],
-                'session_type': row[1],
-                'pattern': row[2],
-                'recommendation': row[3],
-                'confidence_score': row[4],
-                'similarity': float(row[5]),
-            })
+        # Use EmbeddingService which handles pgvector and SQLite fallback
+        from common.embedding_service import EmbeddingService
+        
+        # Filter by current user for data isolation
+        user_id = str(request.user.id) if request.user.is_authenticated else None
+        
+        results = EmbeddingService.similarity_search(
+            query_embedding=query_embedding,
+            session_type=session_type,
+            user_id=user_id,
+            limit=limit,
+            threshold=threshold
+        )
 
         return Response({'results': results})
 
@@ -306,3 +280,53 @@ class CounsellingSessionViewSet(viewsets.ModelViewSet):
         session.save()
 
         return Response(CounsellingSessionSerializer(session).data)
+
+    @action(detail=True, methods=['post'], url_path='extract-insights')
+    def extract_insights(self, request, pk=None):
+        """Extract and store clinical insights from completed session."""
+        # Lazy imports to avoid AppRegistryNotReady
+        from common.services import InsightExtractionService
+        from common.embedding_service import EmbeddingService
+        
+        session = self.get_object()
+        if session.status != 'completed':
+            return Response(
+                {'error': 'Session must be completed'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        if not session.result:
+            return Response(
+                {'error': 'Session has no result data'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Extract insights
+        insights = InsightExtractionService.extract_insights_from_session(session)
+        
+        if not insights:
+            return Response(
+                {'message': 'No insights extracted from this session', 'insights_created': 0},
+                status=status.HTTP_200_OK
+            )
+
+        # Save insights
+        saved_count = InsightExtractionService.save_insights(insights)
+        
+        # Generate embeddings for saved insights
+        embedding_count = EmbeddingService.bulk_store_embeddings(insights)
+
+        return Response({
+            'message': f'Successfully extracted {saved_count} insights',
+            'insights_created': saved_count,
+            'embeddings_generated': embedding_count,
+            'insights': [
+                {
+                    'id': str(i.id),
+                    'pattern': i.pattern,
+                    'recommendation': i.recommendation,
+                    'confidence_score': i.confidence_score,
+                    'session_type': i.session_type,
+                }
+                for i in insights
+            ]
+        }, status=status.HTTP_201_CREATED)
